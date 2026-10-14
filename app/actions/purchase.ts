@@ -103,3 +103,16 @@ export async function duplicatePurchase(id: string) {
     throw new Error('항목 복제에 실패했습니다.');
   }
 }
+
+// app/actions/purchase.ts 맨 아래에 추가
+
+// ✨ 프론트엔드 대신 서버 내부에서 5개를 빛의 속도로 생성하는 함수
+export async function addFivePurchases() {
+  const results = [];
+  // 서버가 DB랑 직접 통신하므로 5번을 반복해도 1초도 안 걸립니다.
+  for (let i = 0; i < 5; i++) {
+    const row = await addPurchase();
+    results.push(row);
+  }
+  return results;
+}

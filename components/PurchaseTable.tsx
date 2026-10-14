@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useTransition, useRef } from 'react';
-import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase } from '@/app/actions/purchase';
+import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase, addFivePurchases } from '@/app/actions/purchase';
 import { generateAiReview } from '@/app/actions/ai';
-
 type Purchase = {
   id: string;
   productName: string;
@@ -153,26 +152,25 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     }
   };
 
-// 🛡️ 안전한 통신: 항목 5줄 추가 (타임아웃 방지 & 중복 클릭 100% 차단)
+
+  // 🛡️ 완벽한 통신: 한 번의 요청으로 5줄 추가 (타임아웃 100% 해결)
   const handleAddRow = async () => {
-    setIsAdding(true); // 광클 방지 잠금 (이제 10줄, 15줄 절대 안 생김!)
+    setIsAdding(true); // 광클 방지 잠금
     
     try {
-      // Vercel 10초 셧다운을 피하기 위해 5발 동시 발사 (단 3초면 끝남!)
-      const newSavedRows = await Promise.all(
-        Array.from({ length: 5 }).map(() => addPurchase())
-      );
+      // 프론트엔드는 미국 서버에 딱 '1번'만 요청합니다. 
+      // 서버가 알아서 5개를 만들어서 배열로 던져줍니다.
+      const newSavedRows = await addFivePurchases();
       
-      // 5줄 뚝딱 완성되면 화면 맨 위에 깔끔하게 뿌림
+      // 화면 맨 위에 즉시 뿌려주기
       setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);
       alert('항목 추가 중 오류가 발생했습니다.');
     } finally {
-      setIsAdding(false); // 작업 완료 후 버튼 잠금 해제
+      setIsAdding(false); 
     }
   };
-
   // 🛡️ 안전한 통신: 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직)
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
