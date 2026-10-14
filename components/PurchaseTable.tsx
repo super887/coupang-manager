@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase, getPaginatedPurchases } from '@/app/actions/purchase';
 import { generateAiReview } from '@/app/actions/ai';
 
-// 🛡️ 에러 방지: accounts가 안 넘어와도 터지지 않게 기본값([]) 세팅!
 export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   // --- 페이징, 검색, 탭 상태 관리 ---
   const [activeTab, setActiveTab] = useState<'progress' | 'completed'>('progress');
@@ -18,7 +17,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   const [localData, setLocalData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- 기존 상태 관리 (복구 완료!) ---
+  // --- 기존 상태 관리 ---
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
   const [modalReview, setModalReview] = useState<{id: string, text: string} | null>(null);
@@ -67,6 +66,20 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setAppliedSearch('');
   };
 
+  // ✨ 안전한 텍스트 입력 핸들러 부활!
+  const handleLocalChange = (id: string, field: string, value: any) => {
+    setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  // ✨ 안전한 수정 모드 진입 핸들러
+  const handleEdit = (id: string) => {
+    setEditingRows(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
   // --- 체크박스 3종 낙관적 탭 이동 ---
   const handleCheckChange = async (id: string, field: string, value: boolean) => {
     const row = localData.find(r => r.id === id);
@@ -97,7 +110,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     else setSelectedRows(new Set(localData.map(r => r.id)));
   };
 
-  // --- 단일 AI 생성 (복구 완료!) ---
+  // --- 단일 AI 생성 ---
   const handleGenerateAi = async (id: string, productName: string) => {
     try {
       const generatedText = await generateAiReview(id, productName);
@@ -108,9 +121,8 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     }
   };
 
-  // --- 전체 AI 리뷰 생성 (복구 완료!) ---
+  // --- 전체 AI 리뷰 생성 ---
   const handleBulkGenerateAi = async () => {
-    // 💡 참고: 현재 켜져 있는 '페이지(100개)' 안에서만 전체 생성이 동작합니다!
     const targets = localData.filter(r => 
       r.reviewType === '(빈)텍스트' && 
       !r.generatedReview && 
@@ -226,7 +238,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
         <button onClick={() => changeTab('completed')} className={`flex-1 py-3 font-bold text-sm transition-colors ${activeTab === 'completed' ? 'bg-white text-green-700 border-t-2 border-t-green-600' : 'text-gray-500 hover:bg-gray-50'}`}>✅ 완료 내역</button>
       </div>
 
-      {/* 툴바 (검색 및 버튼 복구!) */}
+      {/* 툴바 */}
       <div className="p-4 border-b border-gray-200 flex flex-wrap gap-4 justify-between items-center bg-gray-50">
         <div className="flex items-center gap-2">
           <select value={searchField} onChange={e => setSearchField(e.target.value)} className="p-2 border rounded-lg outline-none text-sm bg-white">
@@ -248,12 +260,10 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
         </div>
 
         <div className="flex gap-2">
-          {/* ✨ 잃어버렸던 전체 AI 생성 버튼 부활! */}
           <button onClick={handleBulkGenerateAi} disabled={isLoading || isBulkGenerating || isAdding} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">✨ 전체 AI 생성</button>
-          
           <button onClick={handleBulkDelete} disabled={selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">🗑️ 선택 삭제</button>
           <button onClick={handleAddRow} disabled={isAdding} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 w-[130px]">
-            {isAdding ? '⏳ 추가 중...' : '새 항목 5줄 추가'}
+            {isAdding ? '⏳ 추가 중...' : '+ 새 항목 5줄 추가'}
           </button>
         </div>
       </div>
@@ -296,31 +306,31 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                 const isSelected = selectedRows.has(row.id);
                 return (
                   <tr key={row.id} className={`${isSelected ? 'bg-red-50/40' : (isEditing ? 'bg-yellow-50/30' : 'hover:bg-blue-50/10')} transition-colors`}>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="date" value={row.purchaseDate} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, purchaseDate: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}</td>
                     
-                    {/* 🛡️ 수정 시 계정 목록(accounts) 에러 방지 처리! */}
+                    {/* 🛡️ 핵심 수정: 모든 input에 || '' 방어막을 씌워 null 에러를 완벽 차단했습니다! */}
+                    <td className="p-1 border-r text-center">{isEditing ? <input type="date" value={row.purchaseDate || ''} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}</td>
+                    
                     <td className="p-1 border-r text-center">{isEditing ? (
-                        <select value={row.accountHolder || ''} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, accountHolder: e.target.value}:r))} className="w-full p-2 border rounded text-xs">
+                        <select value={row.accountHolder || ''} onChange={(e) => handleLocalChange(row.id, 'accountHolder', e.target.value)} className="w-full p-2 border rounded text-xs">
                           <option value="">선택 안됨</option>
                           {(accounts || []).map(acc => <option key={acc.accountHolder} value={acc.accountHolder}>{acc.accountHolder}</option>)}
                         </select>
                       ) : <div className="py-2 px-1 truncate max-w-[90px] mx-auto text-xs">{row.accountHolder || '-'}</div>}
                     </td>
                     
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.platform || ''} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, platform: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[80px] mx-auto text-xs">{row.platform}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.productName} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, productName: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[140px] mx-auto text-xs">{row.productName || '-'}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.chatRoomName} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, chatRoomName: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[130px] mx-auto text-xs">{row.chatRoomName || '-'}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.paybackName} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, paybackName: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[100px] mx-auto text-xs">{row.paybackName || '-'}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.contactOnBangpok || ''} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, contactOnBangpok: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs">{row.contactOnBangpok || '-'}</div>}</td>
-                    <td className="p-1 border-r text-right">{isEditing ? <input type="number" value={row.price} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, price: parseInt(e.target.value)||0}:r))} className="w-full p-2 border rounded text-right text-xs" /> : <div className="py-2 px-1 text-xs">{row.price.toLocaleString()}</div>}</td>
+                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.platform || ''} onChange={(e) => handleLocalChange(row.id, 'platform', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[80px] mx-auto text-xs">{row.platform}</div>}</td>
+                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.productName || ''} onChange={(e) => handleLocalChange(row.id, 'productName', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[140px] mx-auto text-xs">{row.productName || '-'}</div>}</td>
+                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.chatRoomName || ''} onChange={(e) => handleLocalChange(row.id, 'chatRoomName', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[130px] mx-auto text-xs">{row.chatRoomName || '-'}</div>}</td>
+                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.paybackName || ''} onChange={(e) => handleLocalChange(row.id, 'paybackName', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[100px] mx-auto text-xs">{row.paybackName || '-'}</div>}</td>
+                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.contactOnBangpok || ''} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs">{row.contactOnBangpok || '-'}</div>}</td>
+                    <td className="p-1 border-r text-right">{isEditing ? <input type="number" value={row.price || 0} onChange={(e) => handleLocalChange(row.id, 'price', Number(e.target.value) || 0)} className="w-full p-2 border rounded text-right text-xs" /> : <div className="py-2 px-1 text-xs">{(row.price || 0).toLocaleString()}</div>}</td>
                     <td className="p-1 border-r text-center">{isEditing ? (
-                        <select value={row.reviewType} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, reviewType: e.target.value}:r))} className="w-full p-2 border rounded text-xs">
+                        <select value={row.reviewType || '(빈)텍스트'} onChange={(e) => handleLocalChange(row.id, 'reviewType', e.target.value)} className="w-full p-2 border rounded text-xs">
                           <option value="(빈)별점">(빈)별점</option><option value="(빈)텍스트">(빈)텍스트</option><option value="(빈)원고제공">(빈)원고제공</option><option value="실배">실배</option>
                         </select>
                       ) : <div className="py-2 px-1 text-xs text-center">{row.reviewType}</div>}
                     </td>
                     
-                    {/* ✨ 잃어버렸던 단일 AI 생성 및 보기 버튼 부활! */}
                     <td className="p-1 border-r text-center align-middle">
                       <div className="flex flex-col gap-1.5 px-1">
                         {row.reviewType === '(빈)텍스트' ? (
@@ -342,12 +352,12 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                     <td className="px-1 py-3 border-r text-center">
                       <div className="flex gap-1 justify-center">
                         {isEditing ? <button onClick={() => handleSave(row)} className="px-2 py-1 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600">저장</button>
-                                  : <button onClick={() => setEditingRows(p => new Set(p).add(row.id))} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-medium hover:bg-blue-100">수정</button>}
+                                  : <button onClick={() => handleEdit(row.id)} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-medium hover:bg-blue-100">수정</button>}
                         <button onClick={() => handleDuplicate(row.id)} className="px-2 py-1 bg-yellow-50 text-yellow-600 border border-yellow-200 rounded text-xs font-medium hover:bg-yellow-100">복제</button>
                         <button onClick={() => handleDelete(row.id)} className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded text-xs font-medium hover:bg-red-100">삭제</button>
                       </div>
                     </td>
-                    <td className="px-2 py-3 text-center align-middle bg-gray-50 border-l"><input type="checkbox" checked={isSelected} onChange={() => { const n = new Set(selectedRows); n.has(row.id) ? n.delete(row.id) : n.add(row.id); setSelectedRows(n); }} className="w-5 h-5 cursor-pointer accent-red-500" /></td>
+                    <td className="px-2 py-3 text-center align-middle bg-gray-50 border-l"><input type="checkbox" checked={isSelected} onChange={() => toggleAllSelection()} className="w-5 h-5 cursor-pointer accent-red-500" /></td>
                   </tr>
                 );
               })
@@ -363,7 +373,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
         <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">다음</button>
       </div>
 
-      {/* ✨ 잃어버렸던 AI 리뷰 보기 모달 부활! */}
+      {/* AI 리뷰 보기 모달 */}
       {modalReview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
@@ -389,7 +399,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
         </div>
       )}
 
-      {/* ✨ 잃어버렸던 전체 AI 생성 중 대기 모달 부활! */}
+      {/* 전체 AI 생성 중 대기 모달 */}
       {isBulkGenerating && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl p-8 flex flex-col items-center max-w-sm w-full mx-4">
