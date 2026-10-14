@@ -1,114 +1,33 @@
 'use client';
 
-import { useState, useEffect, useTransition, useRef } from 'react';
+import { useState, useTransition, useRef } from 'react';
 import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase } from '@/app/actions/purchase';
 import { generateAiReview } from '@/app/actions/ai';
 
 type Purchase = {
   id: string;
-  purchaseDate: string;
-  accountHolder: string;
   productName: string;
-  chatRoomName: string;
-  platform: string;
-  price: number;
   reviewType: string;
-  paybackName: string;
-  contactOnBangpok: string;
-  isReviewWritten: boolean;
-  isProductPayback: boolean;
-  isReviewPayback: boolean;
-  generatedReview: string;
+  generatedReview: string | null;
+  memo: string | null;
+  createdAt: Date;
+  [key: string]: any; 
 };
 
-export default function PurchaseTable({ initialData, accounts }: { initialData: Purchase[], accounts: { accountHolder: string }[] }) {
+export default function PurchaseTable({ initialData, accounts }: { initialData: Purchase[], accounts: any[] }) {
+  // --- 상태 관리 ---
   const [localData, setLocalData] = useState<Purchase[]>(initialData);
-  const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
-  const [isPending, startTransition] = useTransition();
-  const [modalReview, setModalReview] = useState<{ id: string, text: string } | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
+  const [modalReview, setModalReview] = useState<{id: string, text: string} | null>(null);
+  const [isPending, startTransition] = useTransition();
   
+  // AI 생성 관련 상태
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const cancelBulkRef = useRef(false);
 
-  useEffect(() => {
-    setLocalData(initialData);
-    setSelectedRows(prev => {
-      const next = new Set(prev);
-      const validIds = new Set(initialData.map(r => r.id));
-      next.forEach(id => { if (!validIds.has(id)) next.delete(id); });
-      return next;
-    });
-  }, [initialData]);
-
-  const handleAddRow = () => {
-    startTransition(async () => {
-      const defaultAccount = accounts.length > 0 ? accounts[0].accountHolder : '';
-      const newRows = await addPurchase(defaultAccount);
-      if (newRows && newRows.length > 0) {
-        setEditingRows(prev => {
-          const next = new Set(prev);
-          newRows.forEach((row: any) => next.add(row.id));
-          return next;
-        });
-      }
-    });
-  };
-
-  const handleLocalChange = (id: string, field: keyof Purchase, value: any) => {
-    setLocalData(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
-  };
-
-  const handleEdit = (id: string) => setEditingRows(prev => new Set(prev).add(id));
-
-  const handleSave = (row: Purchase) => {
-    startTransition(async () => {
-      await updatePurchase(row.id, row);
-      setEditingRows(prev => {
-        const next = new Set(prev);
-        next.delete(row.id);
-        return next;
-      });
-    });
-  };
-
-  const handleDelete = (id: string) => {
-    if (confirm('삭제하시겠습니까?')) {
-      startTransition(() => deletePurchase(id));
-    }
-  };
-
-  const handleDuplicate = (id: string) => {
-    startTransition(async () => {
-      const duplicatedRow = await duplicatePurchase(id);
-      if (duplicatedRow) {
-        setLocalData(prev => {
-          const index = prev.findIndex(r => r.id === id);
-          if (index === -1) return prev;
-          const newData = [...prev];
-          newData.splice(index, 0, duplicatedRow as Purchase);
-          return newData;
-        });
-      }
-    });
-  };
-
-  const handleBulkDelete = () => {
-    if (selectedRows.size === 0) return alert('삭제할 항목을 체크박스로 선택해주세요.');
-    if (confirm(`선택한 ${selectedRows.size}개 항목을 한 번에 삭제하시겠습니까?`)) {
-      startTransition(async () => {
-        await deletePurchases(Array.from(selectedRows));
-        setSelectedRows(new Set());
-      });
-    }
-  };
-
-  const toggleAllSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) setSelectedRows(new Set(localData.map(r => r.id)));
-    else setSelectedRows(new Set());
-  };
-
+  // --- 체크박스 및 선택 로직 ---
   const toggleRowSelection = (id: string) => {
     setSelectedRows(prev => {
       const next = new Set(prev);
@@ -118,32 +37,157 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     });
   };
 
+  const toggleAllSelection = () => {
+    if (selectedRows.size === localData.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(localData.map(r => r.id)));
+    }
+  };
+
+  // --- 텍스트 복사 ---
+  const handleCopy = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    alert('복사되었습니다!');
+  };
+
+  // --- 단일 AI 생성 ---
   const handleGenerateAi = async (id: string, productName: string) => {
-    if (!productName) return alert('상품명을 먼저 입력(또는 저장)해주세요!');
+    try {
+      const generatedText = await generateAiReview(id, productName);
+      // 낙관적 업데이트: 화면 먼저 변경
+      setLocalData(prev => prev.map(r => r.id === id ? { ...r, generatedReview: generatedText } : r));
+      await updatePurchase(id, { generatedReview: generatedText });
+    } catch (e) {
+      alert('AI 리뷰 생성에 실패했습니다.');
+    }
+  };
+
+  // --- 편집(수정) 모드 로직 ---
+  const handleEdit = (id: string) => {
+    setEditingRows(prev => { const next = new Set(prev); next.add(id); return next; });
+  };
+
+  const handleLocalChange = (id: string, field: string, value: any) => {
+    // 키보드로 입력할 때마다 화면(localData)만 0.01초만에 즉시 변경 (에러 없음)
+    setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  // ✨ 낙관적 업데이트 1: 저장 (수정 완료)
+  const handleSave = async (row: Purchase) => {
+    const previousData = [...localData];
+    
+    // [UI 즉시 변경] 0.1초 만에 노란색 수정 모드 불을 끄고 완료 상태로 만듦
+    setEditingRows(prev => { const next = new Set(prev); next.delete(row.id); return next; });
+
+    try {
+      // [서버 통신] 백그라운드에서 조용히 DB 업데이트
+      await updatePurchase(row.id, row);
+    } catch (error) {
+      console.error('수정 실패:', error);
+      setLocalData(previousData); // 에러 시 데이터 롤백
+      setEditingRows(prev => { const next = new Set(prev); next.add(row.id); return next; }); // 수정 모드 복구
+      alert('수정에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    }
+  };
+
+  // ✨ 낙관적 업데이트 2: 단일 삭제
+  const handleDelete = async (id: string) => {
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+
+    const previousData = [...localData];
+    // [UI 즉시 변경] 화면에서 즉시 삭제
+    setLocalData(prev => prev.filter(item => item.id !== id));
+    setSelectedRows(prev => { const next = new Set(prev); next.delete(id); return next; });
+
+    try {
+      await deletePurchase(id);
+    } catch (error) {
+      console.error('삭제 실패:', error);
+      setLocalData(previousData); // 에러 시 화면 복구
+      alert('삭제에 실패했습니다.');
+    }
+  };
+
+  // ✨ 낙관적 업데이트 3: 다중 삭제
+  const handleBulkDelete = async () => {
+    if (selectedRows.size === 0 || !confirm(`선택한 ${selectedRows.size}개의 항목을 삭제하시겠습니까?`)) return;
+    
+    const previousData = [...localData];
+    const idsToDelete = Array.from(selectedRows);
+    
+    // [UI 즉시 변경]
+    setLocalData(prev => prev.filter(item => !idsToDelete.includes(item.id)));
+    setSelectedRows(new Set());
+
+    try {
+      await deletePurchases(idsToDelete);
+    } catch (error) {
+      console.error('다중 삭제 실패:', error);
+      setLocalData(previousData);
+      alert('삭제에 실패했습니다.');
+    }
+  };
+
+  // ✨ 낙관적 업데이트 4: 행 복제
+  const handleDuplicate = async (id: string) => {
+    const rowToDuplicate = localData.find(r => r.id === id);
+    if (!rowToDuplicate) return;
+
+    const previousData = [...localData];
+    const tempId = `temp-${Date.now()}`;
+    const optimisticRow = { 
+      ...rowToDuplicate, 
+      id: tempId, 
+      createdAt: new Date(Date.now() + 1000) // 1초 미래 고정 (맨 위로)
+    };
+
+    // [UI 즉시 변경] 임시 ID로 생성해서 화면에 먼저 띄움
+    setLocalData(prev => {
+      const index = prev.findIndex(item => item.id === id);
+      const newData = [...prev];
+      newData.splice(index, 0, optimisticRow as Purchase);
+      return newData;
+    });
+
+    try {
+      const newSavedRow = await duplicatePurchase(id);
+      // 서버 응답 후 진짜 ID로 교체
+      setLocalData(prev => prev.map(item => item.id === tempId ? newSavedRow : item));
+    } catch (error) {
+      console.error('복제 실패:', error);
+      setLocalData(previousData);
+      alert('복제에 실패했습니다.');
+    }
+  };
+
+  // --- 항목 5줄 추가 ---
+  const handleAddRow = () => {
     startTransition(async () => {
       try {
-        const text = await generateAiReview(id, productName);
-        handleLocalChange(id, 'generatedReview', text);
-      } catch (e: any) { alert(e.message || 'AI 리뷰 생성 오류'); }
+        const newRows = await Promise.all(Array.from({ length: 5 }).map(() => addPurchase()));
+        setLocalData(prev => [...newRows, ...prev]);
+      } catch (error) {
+        console.error('추가 실패:', error);
+        alert('새 항목 추가 중 오류가 발생했습니다.');
+      }
     });
   };
 
-// ✨ 전체 AI 리뷰 생성 (Flash Lite 15개 분할 생성 로직 적용)
+  // --- 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직) ---
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
       r.reviewType === '(빈)텍스트' && 
       !r.generatedReview && 
-      r.productName.trim() !== ''
+      (r.productName || '').trim() !== ''
     );
     
     if (targets.length === 0) return alert('생성할 대상이 없습니다.\n(조건: (빈)텍스트 + 생성된 리뷰 없음 + 상품명 입력됨)');
     
-    // 중복된 상품명 제거 (API 호출 횟수 단축)
     let uniqueProductNames = Array.from(new Set(targets.map(t => t.productName.trim())));
 
-    // ✨ 핵심: 15개가 넘어가면 15개까지만 자르고 알림 띄우기
     if (uniqueProductNames.length > 15) {
-      alert(`구글 AI의 분당 최대 생성 한도(15개)를 초과하여, 먼저 15개의 상품에 대해서만 리뷰를 생성합니다.\n\n이 작업이 완료된 후 다시 '전체 AI 생성' 버튼을 눌러 남은 항목을 진행해 주세요!`);
+      alert(`구글 AI의 분당 최대 생성 한도(15개)를 초과하여, 먼저 15개의 상품에 대해서만 리뷰를 생성합니다.\n\n완료 후 다시 버튼을 눌러주세요!`);
       uniqueProductNames = uniqueProductNames.slice(0, 15);
     }
 
@@ -162,16 +206,13 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
         const matchingRows = targets.filter(t => t.productName.trim() === currentProductName);
         const sampleId = matchingRows[0].id;
 
-        // 1. 대표로 한 번만 AI API 호출
         const generatedText = await generateAiReview(sampleId, currentProductName);
         
-        // 2. 동일한 상품명을 가진 나머지 행들도 DB에 일괄 복사 저장
         const otherRows = matchingRows.slice(1);
         for (const row of otherRows) {
           await updatePurchase(row.id, { ...row, generatedReview: generatedText });
         }
 
-        // 3. 화면(UI) 즉시 업데이트
         setLocalData(prev => prev.map(r => 
           (r.reviewType === '(빈)텍스트' && !r.generatedReview && r.productName.trim() === currentProductName)
             ? { ...r, generatedReview: generatedText }
@@ -179,11 +220,10 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
         ));
       } catch (e) { 
         console.error(`생성 실패 (${currentProductName}):`, e); 
-        alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.\n(잠시 후 다시 시도해 주세요.)`);
+        alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.`);
         break; 
       }
       
-      // 구글 AI 속도 제한 회피를 위한 5초 딜레이
       if (i < uniqueProductNames.length - 1 && !cancelBulkRef.current) {
         await new Promise(res => setTimeout(res, 5000));
       }
@@ -191,14 +231,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     
     setIsBulkGenerating(false);
     setBulkProgress({ current: 0, total: 0 });
-    
-    // 생성이 무사히 끝나면 친절하게 다음 행동 안내
-    alert('✅ 요청하신 AI 리뷰 생성이 완료되었습니다!\n\n아직 (빈)텍스트가 남아있다면 버튼을 한 번 더 눌러주세요.');
-  };
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    alert('리뷰가 클립보드에 복사되었습니다!');
+    alert('✅ 요청하신 AI 리뷰 생성이 완료되었습니다!\n\n아직 남은 항목이 있다면 버튼을 한 번 더 눌러주세요.');
   };
 
   return (
@@ -296,7 +329,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
                     </td>
 
                     <td className="p-1 border-r text-center">
-                      {isEditing ? <input type="text" value={row.contactOnBangpok} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} placeholder="연락처" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs" title={row.contactOnBangpok}>{row.contactOnBangpok || '-'}</div>}
+                      {isEditing ? <input type="text" value={row.contactOnBangpok || ''} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} placeholder="연락처" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs" title={row.contactOnBangpok}>{row.contactOnBangpok || '-'}</div>}
                     </td>
 
                     <td className="p-1 border-r text-right">
@@ -320,7 +353,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
                           !row.generatedReview ? (
                             <button onClick={() => handleGenerateAi(row.id, row.productName)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">생성</button>
                           ) : (
-                            <button onClick={() => setModalReview({ id: row.id, text: row.generatedReview })} className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">📄 보기</button>
+                            <button onClick={() => setModalReview({ id: row.id, text: row.generatedReview || '' })} className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">📄 보기</button>
                           )
                         ) : (
                           <span className="text-gray-400 text-[11px] block text-center py-1.5">-</span>
@@ -329,13 +362,13 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
                     </td>
 
                     <td className={`p-1 border-r text-center transition-colors duration-300 ${writtenBg}`}>
-                      <input type="checkbox" checked={isWritten} onChange={(e) => handleLocalChange(row.id, 'isReviewWritten', e.target.checked)} onClick={(e) => { if (!isEditing) e.preventDefault(); }} className={`w-5 h-5 rounded mt-1 accent-blue-600 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`} />
+                      <input type="checkbox" checked={isWritten || false} onChange={(e) => handleLocalChange(row.id, 'isReviewWritten', e.target.checked)} onClick={(e) => { if (!isEditing) e.preventDefault(); }} className={`w-5 h-5 rounded mt-1 accent-blue-600 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`} />
                     </td>
                     <td className={`p-1 border-r text-center transition-colors duration-300 ${productBg}`}>
-                      <input type="checkbox" checked={isProductPayback} onChange={(e) => handleLocalChange(row.id, 'isProductPayback', e.target.checked)} onClick={(e) => { if (!isEditing) e.preventDefault(); }} className={`w-5 h-5 rounded mt-1 accent-blue-600 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`} />
+                      <input type="checkbox" checked={isProductPayback || false} onChange={(e) => handleLocalChange(row.id, 'isProductPayback', e.target.checked)} onClick={(e) => { if (!isEditing) e.preventDefault(); }} className={`w-5 h-5 rounded mt-1 accent-blue-600 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`} />
                     </td>
                     <td className={`p-1 border-r text-center transition-colors duration-300 ${reviewBg}`}>
-                      <input type="checkbox" checked={isReviewPayback} onChange={(e) => handleLocalChange(row.id, 'isReviewPayback', e.target.checked)} onClick={(e) => { if (!isEditing) e.preventDefault(); }} className={`w-5 h-5 rounded mt-1 accent-blue-600 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`} />
+                      <input type="checkbox" checked={isReviewPayback || false} onChange={(e) => handleLocalChange(row.id, 'isReviewPayback', e.target.checked)} onClick={(e) => { if (!isEditing) e.preventDefault(); }} className={`w-5 h-5 rounded mt-1 accent-blue-600 ${isEditing ? 'cursor-pointer' : 'cursor-default'}`} />
                     </td>
 
                     <td className="px-1 py-3 border-r text-center">
