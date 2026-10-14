@@ -18,7 +18,10 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   const [searchInput, setSearchInput] = useState(''); 
   const [appliedSearch, setAppliedSearch] = useState(''); 
   const [localData, setLocalData] = useState<any[]>([]);
+  
   const [isLoading, setIsLoading] = useState(true);
+  const [hideSpinner, setHideSpinner] = useState(false); // ✨ 2중 로딩 방지용 스피너 숨김 스위치
+
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
   const [modalReview, setModalReview] = useState<{id: string, text: string} | null>(null);
@@ -41,6 +44,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
       console.error('데이터 불러오기 실패:', error);
     } finally {
       setIsLoading(false);
+      setHideSpinner(false); // ✨ 데이터 로딩이 끝나면 스피너 숨김 스위치도 원래대로 초기화
     }
   };
 
@@ -65,7 +69,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // 🛡️ 유령 새로고침 완벽 차단 방어막 적용
   const handleEdit = (e: React.MouseEvent, id: string) => {
     e.preventDefault(); 
     e.stopPropagation();
@@ -197,16 +200,26 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     } catch (e) { fetchData(); }
   };
 
+  // ✨ 새 항목 추가 시 2중 로딩 방지 적용
   const handleAddRow = async (e: React.MouseEvent) => {
     e.preventDefault();
     setIsAdding(true);
+    setHideSpinner(true); // 👈 보라색 로딩창 표시 강제 차단
     try {
       await addPurchase();
-      setActiveTab('progress');
-      setCurrentPage(1);
-      fetchData(); 
-    } catch (e) { alert('추가 실패'); } 
-    finally { setIsAdding(false); }
+      if (activeTab === 'progress' && currentPage === 1) {
+        await fetchData(); 
+      } else {
+        setActiveTab('progress');
+        setCurrentPage(1);
+      }
+    } catch (e) { 
+      alert('추가 실패'); 
+      setHideSpinner(false); 
+    } 
+    finally { 
+      setIsAdding(false); 
+    }
   };
 
   return (
@@ -245,7 +258,8 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
       </div>
 
       <div className="overflow-x-auto min-h-[400px] relative">
-        {isLoading && (
+        {/* ✨ hideSpinner가 켜져 있을 때는 보라색 스피너가 나타나지 않음 */}
+        {isLoading && !hideSpinner && (
           <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
             <div className="animate-spin rounded-full h-10 w-10 border-4 border-purple-500 border-t-transparent"></div>
           </div>
@@ -290,7 +304,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                 return (
                   <tr key={row.id} className={`${rowBg} transition-colors`}>
                     
-                    {/* 🛡️ getStr / getNum을 활용한 철통 방어 입력창들 */}
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="date" value={getStr(row.purchaseDate)} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 text-xs">{getStr(row.purchaseDate)}</div>}
                     </td>
