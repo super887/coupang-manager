@@ -4,42 +4,45 @@ import { useState, useEffect, useRef } from 'react';
 import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase, getPaginatedPurchases } from '@/app/actions/purchase';
 import { generateAiReview } from '@/app/actions/ai';
 
-export default function PurchaseTable({ accounts }: { accounts: any[] }) {
+// 🛡️ 에러 방지: accounts가 안 넘어와도 터지지 않게 기본값([]) 세팅!
+export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   // --- 페이징, 검색, 탭 상태 관리 ---
   const [activeTab, setActiveTab] = useState<'progress' | 'completed'>('progress');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   
   const [searchField, setSearchField] = useState('productName');
-  const [searchInput, setSearchInput] = useState(''); // 타이핑용
-  const [appliedSearch, setAppliedSearch] = useState(''); // 실제 검색 트리거용
+  const [searchInput, setSearchInput] = useState(''); 
+  const [appliedSearch, setAppliedSearch] = useState(''); 
   
   const [localData, setLocalData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- 기존 상태 관리 ---
+  // --- 기존 상태 관리 (복구 완료!) ---
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
   const [modalReview, setModalReview] = useState<{id: string, text: string} | null>(null);
+  
+  // AI 생성 상태
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const cancelBulkRef = useRef(false);
   const [isAdding, setIsAdding] = useState(false);
 
-  // 🚀 핵심: 조건이 바뀔 때마다 서버에서 데이터를 다시 가져옴 (100개씩)
+  // 🚀 데이터 불러오기 로직 (페이징 유지)
   const fetchData = async () => {
     setIsLoading(true);
     try {
       const data = await getPaginatedPurchases({
         page: currentPage,
-        pageSize: 100, // 100개 고정!
+        pageSize: 100, 
         searchField: searchField,
         searchKeyword: appliedSearch,
         isCompleted: activeTab === 'completed'
       });
       setLocalData(data.items);
       setTotalPages(data.totalPages || 1);
-      setSelectedRows(new Set()); // 페이지 이동 시 선택 초기화
+      setSelectedRows(new Set()); 
     } catch (error) {
       console.error('데이터 불러오기 실패:', error);
     } finally {
@@ -51,9 +54,8 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
     fetchData();
   }, [currentPage, appliedSearch, activeTab]);
 
-  // --- 검색 및 탭 이동 핸들러 ---
   const executeSearch = () => {
-    setCurrentPage(1); // 검색 시 1페이지로 리셋
+    setCurrentPage(1); 
     setAppliedSearch(searchInput);
   };
 
@@ -65,29 +67,23 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
     setAppliedSearch('');
   };
 
-  // --- 체크박스 3종 세트 (낙관적 탭 이동 로직) ---
+  // --- 체크박스 3종 낙관적 탭 이동 ---
   const handleCheckChange = async (id: string, field: string, value: boolean) => {
     const row = localData.find(r => r.id === id);
     if (!row) return;
 
     const updatedRow = { ...row, [field]: value };
-    // 3개가 모두 체크되었는지 검사
     const isNowCompleted = updatedRow.isReviewWritten && updatedRow.isProductPayback && updatedRow.isReviewPayback;
-    
-    // 현재 탭의 상태와 맞지 않게 되면 화면에서 즉시(낙관적) 날려버림
     const shouldVanish = (activeTab === 'progress' && isNowCompleted) || (activeTab === 'completed' && !isNowCompleted);
 
-    if (shouldVanish) {
-      setLocalData(prev => prev.filter(r => r.id !== id));
-    } else {
-      setLocalData(prev => prev.map(r => r.id === id ? updatedRow : r));
-    }
+    if (shouldVanish) setLocalData(prev => prev.filter(r => r.id !== id));
+    else setLocalData(prev => prev.map(r => r.id === id ? updatedRow : r));
 
     try {
       await updatePurchase(id, { [field]: value });
     } catch (e) {
       alert('상태 업데이트에 실패했습니다.');
-      fetchData(); // 실패 시 서버에서 롤백 데이터 땡겨옴
+      fetchData(); 
     }
   };
 
@@ -101,7 +97,72 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
     else setSelectedRows(new Set(localData.map(r => r.id)));
   };
 
-  // 🚀 저장 로직
+  // --- 단일 AI 생성 (복구 완료!) ---
+  const handleGenerateAi = async (id: string, productName: string) => {
+    try {
+      const generatedText = await generateAiReview(id, productName);
+      setLocalData(prev => prev.map(r => r.id === id ? { ...r, generatedReview: generatedText } : r));
+      await updatePurchase(id, { generatedReview: generatedText });
+    } catch (e) {
+      alert('AI 리뷰 생성에 실패했습니다.');
+    }
+  };
+
+  // --- 전체 AI 리뷰 생성 (복구 완료!) ---
+  const handleBulkGenerateAi = async () => {
+    // 💡 참고: 현재 켜져 있는 '페이지(100개)' 안에서만 전체 생성이 동작합니다!
+    const targets = localData.filter(r => 
+      r.reviewType === '(빈)텍스트' && 
+      !r.generatedReview && 
+      (r.productName || '').trim() !== ''
+    );
+    
+    if (targets.length === 0) return alert('현재 화면에 생성할 대상이 없습니다.\n(조건: (빈)텍스트 + 생성된 리뷰 없음 + 상품명 입력됨)');
+    
+    let uniqueProductNames = Array.from(new Set(targets.map(t => t.productName.trim())));
+
+    if (uniqueProductNames.length > 15) {
+      alert(`구글 AI의 분당 최대 생성 한도(15개)를 초과하여, 먼저 15개의 상품에 대해서만 리뷰를 생성합니다.\n\n완료 후 다시 버튼을 눌러주세요!`);
+      uniqueProductNames = uniqueProductNames.slice(0, 15);
+    }
+
+    if (!confirm(`현재 화면의 총 [${uniqueProductNames.length}개] 고유 상품명에 대해 AI 생성을 시작합니다.\n(안전한 생성을 위해 약 ${uniqueProductNames.length * 5}초가 소요됩니다)`)) return;
+
+    setIsBulkGenerating(true);
+    cancelBulkRef.current = false;
+    
+    for (let i = 0; i < uniqueProductNames.length; i++) {
+      if (cancelBulkRef.current) { alert('생성 작업이 취소되었습니다.'); break; }
+      
+      const currentProductName = uniqueProductNames[i];
+      setBulkProgress({ current: i + 1, total: uniqueProductNames.length });
+      
+      try {
+        const matchingRows = targets.filter(t => t.productName.trim() === currentProductName);
+        const sampleId = matchingRows[0].id;
+        const generatedText = await generateAiReview(sampleId, currentProductName);
+        const otherRows = matchingRows.slice(1);
+        
+        for (const row of otherRows) {
+          await updatePurchase(row.id, { ...row, generatedReview: generatedText });
+        }
+        setLocalData(prev => prev.map(r => 
+          (r.reviewType === '(빈)텍스트' && !r.generatedReview && r.productName.trim() === currentProductName)
+            ? { ...r, generatedReview: generatedText } : r
+        ));
+      } catch (e) { 
+        alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.`);
+        break; 
+      }
+      if (i < uniqueProductNames.length - 1 && !cancelBulkRef.current) await new Promise(res => setTimeout(res, 5000));
+    }
+    
+    setIsBulkGenerating(false);
+    setBulkProgress({ current: 0, total: 0 });
+    alert('✅ 요청하신 AI 리뷰 생성이 완료되었습니다!');
+  };
+
+  // 🚀 저장, 삭제, 복제, 추가 로직
   const handleSave = async (row: any) => {
     if (row.id.startsWith('temp-')) return alert('서버에 생성 중입니다. 잠시 후 시도해주세요.');
     const prev = [...localData];
@@ -149,7 +210,6 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
     setIsAdding(true);
     try {
       await addPurchase();
-      // 추가 후 무조건 1페이지, 진행중 탭으로 이동해서 최신 데이터를 리로드
       setActiveTab('progress');
       setCurrentPage(1);
       fetchData(); 
@@ -166,7 +226,7 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
         <button onClick={() => changeTab('completed')} className={`flex-1 py-3 font-bold text-sm transition-colors ${activeTab === 'completed' ? 'bg-white text-green-700 border-t-2 border-t-green-600' : 'text-gray-500 hover:bg-gray-50'}`}>✅ 완료 내역</button>
       </div>
 
-      {/* 툴바 (검색 및 버튼) */}
+      {/* 툴바 (검색 및 버튼 복구!) */}
       <div className="p-4 border-b border-gray-200 flex flex-wrap gap-4 justify-between items-center bg-gray-50">
         <div className="flex items-center gap-2">
           <select value={searchField} onChange={e => setSearchField(e.target.value)} className="p-2 border rounded-lg outline-none text-sm bg-white">
@@ -188,9 +248,12 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
         </div>
 
         <div className="flex gap-2">
+          {/* ✨ 잃어버렸던 전체 AI 생성 버튼 부활! */}
+          <button onClick={handleBulkGenerateAi} disabled={isLoading || isBulkGenerating || isAdding} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">✨ 전체 AI 생성</button>
+          
           <button onClick={handleBulkDelete} disabled={selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">🗑️ 선택 삭제</button>
           <button onClick={handleAddRow} disabled={isAdding} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 w-[130px]">
-            {isAdding ? '⏳ 추가 중...' : '+ 새 항목 5줄 추가'}
+            {isAdding ? '⏳ 추가 중...' : '새 항목 5줄 추가'}
           </button>
         </div>
       </div>
@@ -234,13 +297,16 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
                 return (
                   <tr key={row.id} className={`${isSelected ? 'bg-red-50/40' : (isEditing ? 'bg-yellow-50/30' : 'hover:bg-blue-50/10')} transition-colors`}>
                     <td className="p-1 border-r text-center">{isEditing ? <input type="date" value={row.purchaseDate} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, purchaseDate: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}</td>
+                    
+                    {/* 🛡️ 수정 시 계정 목록(accounts) 에러 방지 처리! */}
                     <td className="p-1 border-r text-center">{isEditing ? (
                         <select value={row.accountHolder || ''} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, accountHolder: e.target.value}:r))} className="w-full p-2 border rounded text-xs">
                           <option value="">선택 안됨</option>
-                          {accounts.map(acc => <option key={acc.accountHolder} value={acc.accountHolder}>{acc.accountHolder}</option>)}
+                          {(accounts || []).map(acc => <option key={acc.accountHolder} value={acc.accountHolder}>{acc.accountHolder}</option>)}
                         </select>
                       ) : <div className="py-2 px-1 truncate max-w-[90px] mx-auto text-xs">{row.accountHolder || '-'}</div>}
                     </td>
+                    
                     <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.platform || ''} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, platform: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[80px] mx-auto text-xs">{row.platform}</div>}</td>
                     <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.productName} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, productName: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[140px] mx-auto text-xs">{row.productName || '-'}</div>}</td>
                     <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.chatRoomName} onChange={(e) => setLocalData(p=>p.map(r=>r.id===row.id?{...r, chatRoomName: e.target.value}:r))} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[130px] mx-auto text-xs">{row.chatRoomName || '-'}</div>}</td>
@@ -253,13 +319,22 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
                         </select>
                       ) : <div className="py-2 px-1 text-xs text-center">{row.reviewType}</div>}
                     </td>
+                    
+                    {/* ✨ 잃어버렸던 단일 AI 생성 및 보기 버튼 부활! */}
                     <td className="p-1 border-r text-center align-middle">
-                        {row.reviewType === '(빈)텍스트' && row.generatedReview && (
-                          <button onClick={() => setModalReview({ id: row.id, text: row.generatedReview })} className="bg-blue-100 text-blue-700 text-[11px] py-1.5 px-2 rounded font-medium w-full hover:bg-blue-200">📄 보기</button>
+                      <div className="flex flex-col gap-1.5 px-1">
+                        {row.reviewType === '(빈)텍스트' ? (
+                          !row.generatedReview ? (
+                            <button onClick={() => handleGenerateAi(row.id, row.productName)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">생성</button>
+                          ) : (
+                            <button onClick={() => setModalReview({ id: row.id, text: row.generatedReview || '' })} className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">📄 보기</button>
+                          )
+                        ) : (
+                          <span className="text-gray-400 text-[11px] block text-center py-1.5">-</span>
                         )}
+                      </div>
                     </td>
                     
-                    {/* ✨ 낙관적 탭 이동을 담당하는 체크박스 3인방 */}
                     <td className="p-1 border-r text-center"><input type="checkbox" checked={row.isReviewWritten || false} onChange={e => handleCheckChange(row.id, 'isReviewWritten', e.target.checked)} className="w-5 h-5 mt-1 cursor-pointer" /></td>
                     <td className="p-1 border-r text-center"><input type="checkbox" checked={row.isProductPayback || false} onChange={e => handleCheckChange(row.id, 'isProductPayback', e.target.checked)} className="w-5 h-5 mt-1 cursor-pointer" /></td>
                     <td className="p-1 border-r text-center"><input type="checkbox" checked={row.isReviewPayback || false} onChange={e => handleCheckChange(row.id, 'isReviewPayback', e.target.checked)} className="w-5 h-5 mt-1 cursor-pointer" /></td>
@@ -288,6 +363,46 @@ export default function PurchaseTable({ accounts }: { accounts: any[] }) {
         <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">다음</button>
       </div>
 
+      {/* ✨ 잃어버렸던 AI 리뷰 보기 모달 부활! */}
+      {modalReview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-800">📄 AI 리뷰 확인</h3>
+              <button onClick={() => setModalReview(null)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+            <textarea
+              value={modalReview.text}
+              onChange={(e) => {
+                setModalReview({ ...modalReview, text: e.target.value });
+                setLocalData(prev => prev.map(r => r.id === modalReview.id ? { ...r, generatedReview: e.target.value } : r));
+              }}
+              readOnly={!editingRows.has(modalReview.id)}
+              className={`w-full h-48 p-4 border rounded-lg text-sm resize-none outline-none ${editingRows.has(modalReview.id) ? 'border-blue-400 focus:ring-2 focus:ring-blue-500 bg-white' : 'border-gray-200 bg-gray-50'}`}
+              placeholder="리뷰 텍스트가 없습니다."
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <button onClick={() => handleCopy(modalReview.text)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors">복사하기</button>
+              <button onClick={() => setModalReview(null)} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✨ 잃어버렸던 전체 AI 생성 중 대기 모달 부활! */}
+      {isBulkGenerating && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl p-8 flex flex-col items-center max-w-sm w-full mx-4">
+            <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-4"></div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">AI 리뷰 전체 생성 중...</h3>
+            <p className="text-gray-500 text-sm mb-6 text-center">
+              API 최적화를 위해 고유 상품명 단위로 생성됩니다.<br/>
+              <span className="font-bold text-purple-600 mt-2 block text-lg">({bulkProgress.current} / {bulkProgress.total})</span>
+            </p>
+            <button onClick={() => { cancelBulkRef.current = true; }} className="px-6 py-2 bg-red-100 hover:bg-red-200 text-red-600 font-bold rounded-lg transition-colors w-full">생성 취소</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
