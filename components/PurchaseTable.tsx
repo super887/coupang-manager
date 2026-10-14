@@ -22,10 +22,11 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   const [modalReview, setModalReview] = useState<{id: string, text: string} | null>(null);
   const [isPending, startTransition] = useTransition();
   
-  // AI 생성 관련 상태
+  // AI 생성 및 추가 관련 로딩 상태
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const cancelBulkRef = useRef(false);
+  const [isAdding, setIsAdding] = useState(false); // ✨ 새 항목 5줄 추가 중 잠금 상태
 
   // --- 체크박스 및 선택 로직 ---
   const toggleRowSelection = (id: string) => {
@@ -55,7 +56,6 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   const handleGenerateAi = async (id: string, productName: string) => {
     try {
       const generatedText = await generateAiReview(id, productName);
-      // 낙관적 업데이트: 화면 먼저 변경
       setLocalData(prev => prev.map(r => r.id === id ? { ...r, generatedReview: generatedText } : r));
       await updatePurchase(id, { generatedReview: generatedText });
     } catch (e) {
@@ -69,34 +69,29 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   };
 
   const handleLocalChange = (id: string, field: string, value: any) => {
-    // 키보드로 입력할 때마다 화면(localData)만 0.01초만에 즉시 변경 (에러 없음)
     setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // ✨ 낙관적 업데이트 1: 저장 (수정 완료)
+  // 🚀 낙관적 업데이트 1: 저장 (0.1초 컷)
   const handleSave = async (row: Purchase) => {
     const previousData = [...localData];
-    
-    // [UI 즉시 변경] 0.1초 만에 노란색 수정 모드 불을 끄고 완료 상태로 만듦
     setEditingRows(prev => { const next = new Set(prev); next.delete(row.id); return next; });
 
     try {
-      // [서버 통신] 백그라운드에서 조용히 DB 업데이트
       await updatePurchase(row.id, row);
     } catch (error) {
       console.error('수정 실패:', error);
-      setLocalData(previousData); // 에러 시 데이터 롤백
-      setEditingRows(prev => { const next = new Set(prev); next.add(row.id); return next; }); // 수정 모드 복구
+      setLocalData(previousData);
+      setEditingRows(prev => { const next = new Set(prev); next.add(row.id); return next; });
       alert('수정에 실패했습니다. 잠시 후 다시 시도해주세요.');
     }
   };
 
-  // ✨ 낙관적 업데이트 2: 단일 삭제
+  // 🚀 낙관적 업데이트 2: 단일 삭제 (0.1초 컷)
   const handleDelete = async (id: string) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
 
     const previousData = [...localData];
-    // [UI 즉시 변경] 화면에서 즉시 삭제
     setLocalData(prev => prev.filter(item => item.id !== id));
     setSelectedRows(prev => { const next = new Set(prev); next.delete(id); return next; });
 
@@ -104,19 +99,18 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       await deletePurchase(id);
     } catch (error) {
       console.error('삭제 실패:', error);
-      setLocalData(previousData); // 에러 시 화면 복구
+      setLocalData(previousData);
       alert('삭제에 실패했습니다.');
     }
   };
 
-  // ✨ 낙관적 업데이트 3: 다중 삭제
+  // 🚀 낙관적 업데이트 3: 다중 삭제 (0.1초 컷)
   const handleBulkDelete = async () => {
     if (selectedRows.size === 0 || !confirm(`선택한 ${selectedRows.size}개의 항목을 삭제하시겠습니까?`)) return;
     
     const previousData = [...localData];
     const idsToDelete = Array.from(selectedRows);
     
-    // [UI 즉시 변경]
     setLocalData(prev => prev.filter(item => !idsToDelete.includes(item.id)));
     setSelectedRows(new Set());
 
@@ -129,7 +123,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     }
   };
 
-  // ✨ 낙관적 업데이트 4: 행 복제
+  // 🚀 낙관적 업데이트 4: 행 복제 (0.1초 컷)
   const handleDuplicate = async (id: string) => {
     const rowToDuplicate = localData.find(r => r.id === id);
     if (!rowToDuplicate) return;
@@ -139,10 +133,9 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     const optimisticRow = { 
       ...rowToDuplicate, 
       id: tempId, 
-      createdAt: new Date(Date.now() + 1000) // 1초 미래 고정 (맨 위로)
+      createdAt: new Date(Date.now() + 1000) 
     };
 
-    // [UI 즉시 변경] 임시 ID로 생성해서 화면에 먼저 띄움
     setLocalData(prev => {
       const index = prev.findIndex(item => item.id === id);
       const newData = [...prev];
@@ -152,7 +145,6 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
 
     try {
       const newSavedRow = await duplicatePurchase(id);
-      // 서버 응답 후 진짜 ID로 교체
       setLocalData(prev => prev.map(item => item.id === tempId ? newSavedRow : item));
     } catch (error) {
       console.error('복제 실패:', error);
@@ -161,45 +153,28 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     }
   };
 
-// ✨ 낙관적 업데이트 5: 항목 5줄 추가 (순차 통신 적용)
+  // 🛡️ 안전한 통신: 항목 5줄 추가 (진짜 ID 딜레마 및 중복 생성 방지)
   const handleAddRow = async () => {
-    const previousData = [...localData];
+    setIsAdding(true); // 광클 방지 잠금
     
-    // 1. 임시 가짜 ID로 5줄 즉시 생성
-    const tempRows = Array.from({ length: 5 }).map((_, index) => ({
-      id: `temp-add-${Date.now()}-${index}`,
-      purchaseDate: new Date().toISOString().split('T')[0],
-      accountHolder: '', platform: '', productName: '', chatRoomName: '', paybackName: '',
-      contactOnBangpok: '', memo: '', price: 0, reviewType: '(빈)텍스트',
-      generatedReview: null, isReviewWritten: false, isProductPayback: false, isReviewPayback: false,
-      createdAt: new Date(Date.now() + (5 - index) * 1000)
-    }));
-
-    // 2. 화면에 0.1초 만에 5줄 뿅! 나타나게 렌더링
-    setLocalData(prev => [...tempRows, ...prev] as Purchase[]);
-
     try {
-      // 3. 서버 충돌 방지: Promise.all을 빼고 한 줄씩 차례대로 5번 통신!
+      // Promise.all 대신 for문으로 순차적으로 1개씩 안전하게 5번 서버에 요청
       const newSavedRows = [];
       for (let i = 0; i < 5; i++) {
         const savedRow = await addPurchase();
         newSavedRows.push(savedRow);
       }
-      
-      // 4. 조용히 서버 저장이 끝나면 화면의 임시 ID를 진짜 ID로 슬쩍 바꿔치기
-      setLocalData(prev => {
-        const tempIds = tempRows.map(t => t.id);
-        const filteredPrev = prev.filter(item => !tempIds.includes(item.id));
-        return [...newSavedRows, ...filteredPrev];
-      });
+      // 진짜 ID가 박힌 5줄이 완벽히 서버에 생성되면 화면 맨 위에 뿌림
+      setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);
-      setLocalData(previousData); // 에러 시 롤백
-      alert('항목 추가 중 오류가 발생했습니다. 새로고침(F5)을 눌러주세요.');
+      alert('항목 추가 중 오류가 발생했습니다.');
+    } finally {
+      setIsAdding(false); // 완료 후 잠금 해제
     }
   };
 
-  // --- 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직) ---
+  // 🛡️ 안전한 통신: 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직)
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
       r.reviewType === '(빈)텍스트' && 
@@ -267,9 +242,17 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
           {selectedRows.size > 0 && <span className="text-sm font-bold text-red-500">({selectedRows.size}개 선택됨)</span>}
         </h2>
         <div className="flex gap-2">
-          <button onClick={handleBulkGenerateAi} disabled={isPending || isBulkGenerating} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">✨ 전체 AI 생성</button>
-          <button onClick={handleBulkDelete} disabled={isPending || isBulkGenerating || selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">🗑️ 선택 삭제</button>
-          <button onClick={handleAddRow} disabled={isPending || isBulkGenerating} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">+ 새 항목 5줄 추가</button>
+          <button onClick={handleBulkGenerateAi} disabled={isPending || isBulkGenerating || isAdding} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">✨ 전체 AI 생성</button>
+          <button onClick={handleBulkDelete} disabled={isPending || isBulkGenerating || isAdding || selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">🗑️ 선택 삭제</button>
+          
+          {/* ✨ 변경된 버튼: isAdding 상태에 따라 UI가 잠기고 메시지가 바뀝니다. */}
+          <button 
+            onClick={handleAddRow} 
+            disabled={isPending || isBulkGenerating || isAdding} 
+            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed w-[130px]"
+          >
+            {isAdding ? '⏳ 추가 중...' : '+ 새 항목 5줄 추가'}
+          </button>
         </div>
       </div>
 
