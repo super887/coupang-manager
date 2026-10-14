@@ -71,30 +71,35 @@ export async function deletePurchases(ids: string[]) {
   revalidatePath('/');
 }
 
-// ✨ [핵심 기능] 행 복제 기능 추가!
 export async function duplicatePurchase(id: string) {
-  const session = await verifySession();
-  if (!session?.userId) throw new Error('로그인이 필요합니다.');
+  try {
+    // 1. 복제할 원본 데이터 가져오기
+    const existing = await prisma.purchase.findUnique({
+      where: { id },
+    });
 
-  const original = await prisma.purchase.findUnique({
-    where: { id, userId: session.userId }
-  });
-
-  if (!original) throw new Error('원본 데이터가 없습니다.');
-
-  const { id: _, createdAt, updatedAt, ...data } = original;
-
-  // ✨ 정렬 조건(내림차순)을 역이용! 
-  // 원본보다 생성 시간을 '1밀리초' 미래로 설정하면 무조건 원본 바로 윗줄에 삽입됩니다.
-  const newCreatedAt = new Date(createdAt.getTime() + 1);
-
-  const duplicated = await prisma.purchase.create({
-    data: {
-      ...data,
-      createdAt: newCreatedAt,
+    if (!existing) {
+      throw new Error('항목을 찾을 수 없습니다.');
     }
-  });
 
-  revalidatePath('/');
-  return duplicated;
+    // 2. 기존 항목에서 고유 ID와 시간 관련 필드를 제외하고 내용물만 쏙 빼기
+    const { id: _, createdAt, updatedAt, ...dataToDuplicate } = existing;
+
+    // ✨ 마법의 코드: 원래 행의 생성 시간(createdAt)에서 딱 '1초(1000ms)'만 더 미래로 조작!
+    // 이렇게 하면 무조건 원래 행의 '바로 위'에 붙박이처럼 영구 고정됩니다.
+    const fakeCreatedAt = new Date(createdAt.getTime() + 1000);
+
+    // 3. 조작된 시간을 넣어서 DB에 생성
+    const newPurchase = await prisma.purchase.create({
+      data: {
+        ...dataToDuplicate,
+        createdAt: fakeCreatedAt, // 👈 여기가 핵심입니다!
+      },
+    });
+
+    return newPurchase;
+  } catch (error) {
+    console.error('Failed to duplicate purchase:', error);
+    throw new Error('항목 복제에 실패했습니다.');
+  }
 }
