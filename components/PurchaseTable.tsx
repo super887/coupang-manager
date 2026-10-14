@@ -162,15 +162,15 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   };
 
 
-// 🛡️ 안전한 통신: 한 번의 요청으로 5줄 동시 추가 (가짜 ID 안 씀)
+// 🛡️ 프론트엔드: 반복문 싹 제거, 오직 딱 1번만 서버 호출!
   const handleAddRow = async () => {
-    setIsAdding(true); // 버튼 비활성화 (광클 방지)
+    setIsAdding(true); // 버튼 잠금
     
     try {
-      // 아까 서버에 만들어둔 'addFivePurchases'를 호출해 4초 만에 5개를 동시에 가져옵니다.
+      // 🚨 주의: 여기에 Array.from이나 Promise.all이 들어가면 절대 안 됩니다!
+      // 오직 아래 한 줄만 있어야 합니다.
       const newSavedRows = await addFivePurchases();
       
-      // 진짜 ID가 박힌 완벽한 5줄만 화면 맨 위에 추가합니다.
       setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);
