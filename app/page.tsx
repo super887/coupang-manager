@@ -6,7 +6,6 @@ import ApiKeyForm from '@/components/ApiKeyForm';
 import Link from 'next/link'; 
 
 import PurchaseTable from '@/components/PurchaseTable';
-import { getPurchases } from '@/app/actions/purchase';
 
 // ✨ Vercel 서버 타임아웃 60초 연장 설정은 페이지 컴포넌트 파일에 배치합니다.
 export const maxDuration = 60;
@@ -22,7 +21,6 @@ async function DashboardContent() {
   if (!user) redirect('/login');
   
   const hasApiKey = !!user.geminiApiKey;
-  const purchases = await getPurchases();
   
   const accounts = await prisma.accountInfo.findMany({
     where: { userId: session.userId },
