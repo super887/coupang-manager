@@ -129,6 +129,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   };
 
 // ✨ 전체 AI 리뷰 생성 최적화 로직 (중복 상품명 DB 일괄 저장 완벽 적용)
+// ✨ 전체 AI 리뷰 생성 최적화 로직 (구글 API 속도 제한 및 에러 방어 완벽 적용)
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
       r.reviewType === '(빈)텍스트' && 
@@ -153,20 +154,19 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       setBulkProgress({ current: i + 1, total: uniqueProductNames.length });
       
       try {
-        // 1. 현재 상품명과 일치하는 모든 행 찾기
         const matchingRows = targets.filter(t => t.productName.trim() === currentProductName);
         const sampleId = matchingRows[0].id; // 첫 번째 대표 행의 ID
 
-        // 2. 대표로 한 번만 AI API 호출 (구글 할당량 절약)
+        // 1. 대표로 한 번만 AI API 호출
         const generatedText = await generateAiReview(sampleId, currentProductName);
         
-        // 3. ✨ 핵심 수정: 동일한 상품명을 가진 2번째, 3번째 행들도 DB에 확실하게 저장 (복사)
+        // 2. 동일한 상품명을 가진 2번째, 3번째 행들도 DB에 확실하게 저장 (복사)
         const otherRows = matchingRows.slice(1);
         for (const row of otherRows) {
           await updatePurchase(row.id, { ...row, generatedReview: generatedText });
         }
 
-        // 4. 화면(UI) 즉시 업데이트: 방금 생성(복사)한 텍스트를 화면에 바로 씌우고 '보기' 버튼으로 전환
+        // 3. 화면(UI) 즉시 업데이트
         setLocalData(prev => prev.map(r => 
           (r.reviewType === '(빈)텍스트' && !r.generatedReview && r.productName.trim() === currentProductName)
             ? { ...r, generatedReview: generatedText }
@@ -174,10 +174,15 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
         ));
       } catch (e) { 
         console.error(`생성 실패 (${currentProductName}):`, e); 
+        // ✨ 핵심 1: 에러 발생 시 조용히 넘어가지 않고 팝업 띄우고 즉시 중단!
+        alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.\n(구글 AI API 속도 제한이거나 Vercel 시간 초과입니다. 약 1분 후 다시 시도해주세요.)`);
+        break; // 계속 실패할 게 뻔하므로 헛돌지 않게 강제 중단
       }
       
-      // 다음 API 호출 전 서버 보호 딜레이
-      if (i < uniqueProductNames.length - 1 && !cancelBulkRef.current) await new Promise(res => setTimeout(res, 1500));
+      // ✨ 핵심 2: 구글 AI 무료 버전 한도를 피하기 위해 대기 시간을 1.5초 -> 5초로 대폭 늘림!
+      if (i < uniqueProductNames.length - 1 && !cancelBulkRef.current) {
+        await new Promise(res => setTimeout(res, 5000));
+      }
     }
     
     setIsBulkGenerating(false);
