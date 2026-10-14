@@ -153,24 +153,23 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     }
   };
 
-  // 🛡️ 안전한 통신: 항목 5줄 추가 (진짜 ID 딜레마 및 중복 생성 방지)
+// 🛡️ 안전한 통신: 항목 5줄 추가 (타임아웃 방지 & 중복 클릭 100% 차단)
   const handleAddRow = async () => {
-    setIsAdding(true); // 광클 방지 잠금
+    setIsAdding(true); // 광클 방지 잠금 (이제 10줄, 15줄 절대 안 생김!)
     
     try {
-      // Promise.all 대신 for문으로 순차적으로 1개씩 안전하게 5번 서버에 요청
-      const newSavedRows = [];
-      for (let i = 0; i < 5; i++) {
-        const savedRow = await addPurchase();
-        newSavedRows.push(savedRow);
-      }
-      // 진짜 ID가 박힌 5줄이 완벽히 서버에 생성되면 화면 맨 위에 뿌림
+      // Vercel 10초 셧다운을 피하기 위해 5발 동시 발사 (단 3초면 끝남!)
+      const newSavedRows = await Promise.all(
+        Array.from({ length: 5 }).map(() => addPurchase())
+      );
+      
+      // 5줄 뚝딱 완성되면 화면 맨 위에 깔끔하게 뿌림
       setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);
       alert('항목 추가 중 오류가 발생했습니다.');
     } finally {
-      setIsAdding(false); // 완료 후 잠금 해제
+      setIsAdding(false); // 작업 완료 후 버튼 잠금 해제
     }
   };
 
