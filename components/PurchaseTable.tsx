@@ -28,7 +28,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   const cancelBulkRef = useRef(false);
   const [isAdding, setIsAdding] = useState(false);
 
-  // 🚀 데이터 불러오기 로직 (페이징 유지)
+  // 🚀 데이터 불러오기 로직
   const fetchData = async () => {
     setIsLoading(true);
     try {
@@ -66,12 +66,12 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setAppliedSearch('');
   };
 
-  // ✨ 안전한 텍스트 입력 핸들러 부활!
+  // ✨ 안전한 텍스트 입력 핸들러
   const handleLocalChange = (id: string, field: string, value: any) => {
     setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // ✨ 안전한 수정 모드 진입 핸들러
+  // ✨ 수정 모드 진입 핸들러
   const handleEdit = (id: string) => {
     setEditingRows(prev => {
       const next = new Set(prev);
@@ -103,6 +103,16 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
     alert('복사되었습니다!');
+  };
+
+  // ✨ 잃어버렸던 개별 체크박스 기능 완벽 복구
+  const toggleRowSelection = (id: string) => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const toggleAllSelection = () => {
@@ -234,8 +244,8 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
       
       {/* 탭 네비게이션 */}
       <div className="flex border-b bg-gray-100">
-        <button onClick={() => changeTab('progress')} className={`flex-1 py-3 font-bold text-sm transition-colors ${activeTab === 'progress' ? 'bg-white text-purple-700 border-t-2 border-t-purple-600' : 'text-gray-500 hover:bg-gray-50'}`}>🔥 진행 중 내역</button>
-        <button onClick={() => changeTab('completed')} className={`flex-1 py-3 font-bold text-sm transition-colors ${activeTab === 'completed' ? 'bg-white text-green-700 border-t-2 border-t-green-600' : 'text-gray-500 hover:bg-gray-50'}`}>✅ 완료 내역</button>
+        <button type="button" onClick={() => changeTab('progress')} className={`flex-1 py-3 font-bold text-sm transition-colors ${activeTab === 'progress' ? 'bg-white text-purple-700 border-t-2 border-t-purple-600' : 'text-gray-500 hover:bg-gray-50'}`}>🔥 진행 중 내역</button>
+        <button type="button" onClick={() => changeTab('completed')} className={`flex-1 py-3 font-bold text-sm transition-colors ${activeTab === 'completed' ? 'bg-white text-green-700 border-t-2 border-t-green-600' : 'text-gray-500 hover:bg-gray-50'}`}>✅ 완료 내역</button>
       </div>
 
       {/* 툴바 */}
@@ -256,13 +266,13 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
             placeholder="검색어 입력 후 엔터" 
             className="p-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm w-[200px]"
           />
-          <button onClick={executeSearch} className="bg-gray-800 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-gray-700">검색</button>
+          <button type="button" onClick={executeSearch} className="bg-gray-800 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-gray-700">검색</button>
         </div>
 
         <div className="flex gap-2">
-          <button onClick={handleBulkGenerateAi} disabled={isLoading || isBulkGenerating || isAdding} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">✨ 전체 AI 생성</button>
-          <button onClick={handleBulkDelete} disabled={selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">🗑️ 선택 삭제</button>
-          <button onClick={handleAddRow} disabled={isAdding} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 w-[130px]">
+          <button type="button" onClick={handleBulkGenerateAi} disabled={isLoading || isBulkGenerating || isAdding} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">✨ 전체 AI 생성</button>
+          <button type="button" onClick={handleBulkDelete} disabled={selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">🗑️ 선택 삭제</button>
+          <button type="button" onClick={handleAddRow} disabled={isAdding} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 w-[130px]">
             {isAdding ? '⏳ 추가 중...' : '+ 새 항목 5줄 추가'}
           </button>
         </div>
@@ -293,7 +303,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
               <th className="px-1 py-3 border-r text-center w-[40px]">리페</th>
               <th className="px-2 py-3 border-r text-center w-[130px]">작업</th>
               <th className="px-2 py-3 text-center w-[40px]">
-                <input type="checkbox" onChange={toggleAllSelection} checked={localData.length > 0 && selectedRows.size === localData.length} className="w-4 h-4 cursor-pointer" />
+                <input type="checkbox" onChange={toggleAllSelection} checked={localData.length > 0 && selectedRows.size === localData.length} className="w-4 h-4 rounded cursor-pointer accent-red-500" />
               </th>
             </tr>
           </thead>
@@ -304,60 +314,113 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
               localData.map((row) => {
                 const isEditing = editingRows.has(row.id);
                 const isSelected = selectedRows.has(row.id);
+                
+                // ✨ 형님의 원래 체크박스 배경색 디자인 완벽 복구
+                const isWritten = row.isReviewWritten || false;
+                const isProductPayback = row.isProductPayback || false;
+                const isReviewPayback = row.isReviewPayback || false;
+                
+                const writtenBg = isWritten ? 'bg-blue-100' : '';
+                const productBg = isProductPayback ? 'bg-blue-100' : (isWritten ? 'bg-red-100' : '');
+                const reviewBg = isReviewPayback ? 'bg-blue-100' : (isWritten ? 'bg-red-100' : '');
+                const rowBg = isSelected ? 'bg-red-50/40' : (isEditing ? 'bg-yellow-50/30' : 'hover:bg-blue-50/20');
+
                 return (
-                  <tr key={row.id} className={`${isSelected ? 'bg-red-50/40' : (isEditing ? 'bg-yellow-50/30' : 'hover:bg-blue-50/10')} transition-colors`}>
+                  <tr key={row.id} className={`${rowBg} transition-colors`}>
                     
-                    {/* 🛡️ 핵심 수정: 모든 input에 || '' 방어막을 씌워 null 에러를 완벽 차단했습니다! */}
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="date" value={row.purchaseDate || ''} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}</td>
-                    
-                    <td className="p-1 border-r text-center">{isEditing ? (
-                        <select value={row.accountHolder || ''} onChange={(e) => handleLocalChange(row.id, 'accountHolder', e.target.value)} className="w-full p-2 border rounded text-xs">
+                    {/* ✨ 형님의 원래 Input 스타일 완전 복구 */}
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? <input type="date" value={row.purchaseDate || ''} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}
+                    </td>
+
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? (
+                        <select value={row.accountHolder || ''} onChange={(e) => handleLocalChange(row.id, 'accountHolder', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
                           <option value="">선택 안됨</option>
-                          {(accounts || []).map(acc => <option key={acc.accountHolder} value={acc.accountHolder}>{acc.accountHolder}</option>)}
+                          {(accounts || []).map(acc => (
+                            <option key={acc.accountHolder} value={acc.accountHolder}>{acc.accountHolder}</option>
+                          ))}
                         </select>
-                      ) : <div className="py-2 px-1 truncate max-w-[90px] mx-auto text-xs">{row.accountHolder || '-'}</div>}
+                      ) : (
+                        <div className="py-2 px-1 truncate max-w-[90px] mx-auto text-xs">{row.accountHolder || '-'}</div>
+                      )}
                     </td>
                     
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.platform || ''} onChange={(e) => handleLocalChange(row.id, 'platform', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[80px] mx-auto text-xs">{row.platform}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.productName || ''} onChange={(e) => handleLocalChange(row.id, 'productName', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[140px] mx-auto text-xs">{row.productName || '-'}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.chatRoomName || ''} onChange={(e) => handleLocalChange(row.id, 'chatRoomName', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[130px] mx-auto text-xs">{row.chatRoomName || '-'}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.paybackName || ''} onChange={(e) => handleLocalChange(row.id, 'paybackName', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[100px] mx-auto text-xs">{row.paybackName || '-'}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? <input type="text" value={row.contactOnBangpok || ''} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} className="w-full p-2 border rounded text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs">{row.contactOnBangpok || '-'}</div>}</td>
-                    <td className="p-1 border-r text-right">{isEditing ? <input type="number" value={row.price || 0} onChange={(e) => handleLocalChange(row.id, 'price', Number(e.target.value) || 0)} className="w-full p-2 border rounded text-right text-xs" /> : <div className="py-2 px-1 text-xs">{(row.price || 0).toLocaleString()}</div>}</td>
-                    <td className="p-1 border-r text-center">{isEditing ? (
-                        <select value={row.reviewType || '(빈)텍스트'} onChange={(e) => handleLocalChange(row.id, 'reviewType', e.target.value)} className="w-full p-2 border rounded text-xs">
-                          <option value="(빈)별점">(빈)별점</option><option value="(빈)텍스트">(빈)텍스트</option><option value="(빈)원고제공">(빈)원고제공</option><option value="실배">실배</option>
-                        </select>
-                      ) : <div className="py-2 px-1 text-xs text-center">{row.reviewType}</div>}
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? <input type="text" value={row.platform || ''} onChange={(e) => handleLocalChange(row.id, 'platform', e.target.value)} placeholder="플랫폼" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[80px] mx-auto text-xs">{row.platform || '-'}</div>}
                     </td>
-                    
+
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? <input type="text" value={row.productName || ''} onChange={(e) => handleLocalChange(row.id, 'productName', e.target.value)} placeholder="상품명" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-xs" /> : <div className="py-2 px-1 truncate max-w-[140px] mx-auto text-xs" title={row.productName}>{row.productName || '-'}</div>}
+                    </td>
+
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? <input type="text" value={row.chatRoomName || ''} onChange={(e) => handleLocalChange(row.id, 'chatRoomName', e.target.value)} placeholder="카톡방명" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-xs" /> : <div className="py-2 px-1 truncate max-w-[130px] mx-auto text-xs" title={row.chatRoomName}>{row.chatRoomName || '-'}</div>}
+                    </td>
+
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? <input type="text" value={row.paybackName || ''} onChange={(e) => handleLocalChange(row.id, 'paybackName', e.target.value)} placeholder="입금자명" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[100px] mx-auto text-xs" title={row.paybackName}>{row.paybackName || '-'}</div>}
+                    </td>
+
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? <input type="text" value={row.contactOnBangpok || ''} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} placeholder="연락처" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs" title={row.contactOnBangpok}>{row.contactOnBangpok || '-'}</div>}
+                    </td>
+
+                    <td className="p-1 border-r text-right">
+                      {isEditing ? <input type="number" value={row.price || 0} onChange={(e) => handleLocalChange(row.id, 'price', parseInt(e.target.value) || 0)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-right text-xs" /> : <div className="py-2 px-1 text-xs">{(row.price || 0).toLocaleString()}</div>}
+                    </td>
+
+                    <td className="p-1 border-r text-center">
+                      {isEditing ? (
+                        <select value={row.reviewType || '(빈)별점'} onChange={(e) => handleLocalChange(row.id, 'reviewType', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
+                          <option value="(빈)별점">(빈)별점</option>
+                          <option value="(빈)텍스트">(빈)텍스트</option>
+                          <option value="(빈)원고제공">(빈)원고제공</option>
+                          <option value="실배">실배</option>
+                        </select>
+                      ) : <div className="py-2 px-1 text-xs text-center">{row.reviewType || '-'}</div>}
+                    </td>
+
                     <td className="p-1 border-r text-center align-middle">
                       <div className="flex flex-col gap-1.5 px-1">
                         {row.reviewType === '(빈)텍스트' ? (
                           !row.generatedReview ? (
-                            <button onClick={() => handleGenerateAi(row.id, row.productName)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">생성</button>
+                            <button type="button" onClick={() => handleGenerateAi(row.id, row.productName)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">생성</button>
                           ) : (
-                            <button onClick={() => setModalReview({ id: row.id, text: row.generatedReview || '' })} className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">📄 보기</button>
+                            <button type="button" onClick={() => setModalReview({ id: row.id, text: row.generatedReview || '' })} className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full">📄 보기</button>
                           )
                         ) : (
                           <span className="text-gray-400 text-[11px] block text-center py-1.5">-</span>
                         )}
                       </div>
                     </td>
-                    
-                    <td className="p-1 border-r text-center"><input type="checkbox" checked={row.isReviewWritten || false} onChange={e => handleCheckChange(row.id, 'isReviewWritten', e.target.checked)} className="w-5 h-5 mt-1 cursor-pointer" /></td>
-                    <td className="p-1 border-r text-center"><input type="checkbox" checked={row.isProductPayback || false} onChange={e => handleCheckChange(row.id, 'isProductPayback', e.target.checked)} className="w-5 h-5 mt-1 cursor-pointer" /></td>
-                    <td className="p-1 border-r text-center"><input type="checkbox" checked={row.isReviewPayback || false} onChange={e => handleCheckChange(row.id, 'isReviewPayback', e.target.checked)} className="w-5 h-5 mt-1 cursor-pointer" /></td>
+
+                    <td className={`p-1 border-r text-center transition-colors duration-300 ${writtenBg}`}>
+                      <input type="checkbox" checked={isWritten} onChange={(e) => handleCheckChange(row.id, 'isReviewWritten', e.target.checked)} className="w-5 h-5 rounded mt-1 accent-blue-600 cursor-pointer" />
+                    </td>
+                    <td className={`p-1 border-r text-center transition-colors duration-300 ${productBg}`}>
+                      <input type="checkbox" checked={isProductPayback} onChange={(e) => handleCheckChange(row.id, 'isProductPayback', e.target.checked)} className="w-5 h-5 rounded mt-1 accent-blue-600 cursor-pointer" />
+                    </td>
+                    <td className={`p-1 border-r text-center transition-colors duration-300 ${reviewBg}`}>
+                      <input type="checkbox" checked={isReviewPayback} onChange={(e) => handleCheckChange(row.id, 'isReviewPayback', e.target.checked)} className="w-5 h-5 rounded mt-1 accent-blue-600 cursor-pointer" />
+                    </td>
 
                     <td className="px-1 py-3 border-r text-center">
                       <div className="flex gap-1 justify-center">
-                        {isEditing ? <button onClick={() => handleSave(row)} className="px-2 py-1 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600">저장</button>
-                                  : <button onClick={() => handleEdit(row.id)} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-medium hover:bg-blue-100">수정</button>}
-                        <button onClick={() => handleDuplicate(row.id)} className="px-2 py-1 bg-yellow-50 text-yellow-600 border border-yellow-200 rounded text-xs font-medium hover:bg-yellow-100">복제</button>
-                        <button onClick={() => handleDelete(row.id)} className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded text-xs font-medium hover:bg-red-100">삭제</button>
+                        {isEditing ? (
+                          <button type="button" onClick={() => handleSave(row)} className="px-2 py-1 bg-green-500 text-white rounded font-medium hover:bg-green-600 text-xs transition-colors">저장</button>
+                        ) : (
+                          <button type="button" onClick={() => handleEdit(row.id)} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded font-medium hover:bg-blue-100 text-xs transition-colors">수정</button>
+                        )}
+                        <button type="button" onClick={() => handleDuplicate(row.id)} className="px-2 py-1 bg-yellow-50 text-yellow-600 border border-yellow-200 rounded font-medium hover:bg-yellow-100 text-xs transition-colors">복제</button>
+                        <button type="button" onClick={() => handleDelete(row.id)} className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded font-medium hover:bg-red-100 text-xs transition-colors">삭제</button>
                       </div>
                     </td>
-                    <td className="px-2 py-3 text-center align-middle bg-gray-50 border-l"><input type="checkbox" checked={isSelected} onChange={() => toggleAllSelection()} className="w-5 h-5 cursor-pointer accent-red-500" /></td>
+
+                    <td className="px-2 py-3 text-center align-middle bg-gray-50 border-l border-gray-200">
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleRowSelection(row.id)} className="w-5 h-5 cursor-pointer accent-red-500" />
+                    </td>
+
                   </tr>
                 );
               })
@@ -368,9 +431,9 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
 
       {/* 페이징 하단 바 */}
       <div className="flex justify-center items-center py-4 bg-white border-t gap-2">
-        <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">이전</button>
+        <button type="button" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">이전</button>
         <span className="text-sm font-bold text-gray-600 px-4">{currentPage} / {totalPages} 페이지</span>
-        <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">다음</button>
+        <button type="button" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">다음</button>
       </div>
 
       {/* AI 리뷰 보기 모달 */}
@@ -379,7 +442,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-800">📄 AI 리뷰 확인</h3>
-              <button onClick={() => setModalReview(null)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+              <button type="button" onClick={() => setModalReview(null)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
             </div>
             <textarea
               value={modalReview.text}
@@ -392,8 +455,8 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
               placeholder="리뷰 텍스트가 없습니다."
             />
             <div className="mt-5 flex justify-end gap-3">
-              <button onClick={() => handleCopy(modalReview.text)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors">복사하기</button>
-              <button onClick={() => setModalReview(null)} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">닫기</button>
+              <button type="button" onClick={() => handleCopy(modalReview.text)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors">복사하기</button>
+              <button type="button" onClick={() => setModalReview(null)} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">닫기</button>
             </div>
           </div>
         </div>
@@ -409,7 +472,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
               API 최적화를 위해 고유 상품명 단위로 생성됩니다.<br/>
               <span className="font-bold text-purple-600 mt-2 block text-lg">({bulkProgress.current} / {bulkProgress.total})</span>
             </p>
-            <button onClick={() => { cancelBulkRef.current = true; }} className="px-6 py-2 bg-red-100 hover:bg-red-200 text-red-600 font-bold rounded-lg transition-colors w-full">생성 취소</button>
+            <button type="button" onClick={() => { cancelBulkRef.current = true; }} className="px-6 py-2 bg-red-100 hover:bg-red-200 text-red-600 font-bold rounded-lg transition-colors w-full">생성 취소</button>
           </div>
         </div>
       )}
