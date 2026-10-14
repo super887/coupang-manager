@@ -1,5 +1,7 @@
 'use server';
 
+export const maxDuration = 60;
+
 import prisma from '@/lib/prisma';
 import { verifySession } from '@/lib/session';
 import { revalidatePath } from 'next/cache';
