@@ -161,17 +161,38 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     }
   };
 
-  // --- 항목 5줄 추가 ---
-  const handleAddRow = () => {
-    startTransition(async () => {
-      try {
-        const newRows = await Promise.all(Array.from({ length: 5 }).map(() => addPurchase()));
-        setLocalData(prev => [...newRows, ...prev]);
-      } catch (error) {
-        console.error('추가 실패:', error);
-        alert('새 항목 추가 중 오류가 발생했습니다.');
-      }
-    });
+// ✨ 낙관적 업데이트 5: 항목 5줄 추가 (0.1초 컷)
+  const handleAddRow = async () => {
+    const previousData = [...localData];
+    
+    // [UI 즉시 변경] 1. 가짜 ID를 가진 빈 껍데기 줄 5개를 만듭니다.
+    const tempRows = Array.from({ length: 5 }).map((_, index) => ({
+      id: `temp-add-${Date.now()}-${index}`, // 가짜 임시 ID
+      purchaseDate: new Date().toISOString().split('T')[0], // 오늘 날짜
+      accountHolder: '', platform: '', productName: '', chatRoomName: '', paybackName: '',
+      contactOnBangpok: '', memo: '', price: 0, reviewType: '(빈)텍스트',
+      generatedReview: null, isReviewWritten: false, isProductPayback: false, isReviewPayback: false,
+      createdAt: new Date(Date.now() + (5 - index) * 1000) // 맨 위에 순서대로 뜨도록 미래 시간 조작
+    }));
+
+    // 2. 화면 맨 위에 0.1초 만에 즉시 끼워 넣습니다.
+    setLocalData(prev => [...tempRows, ...prev] as Purchase[]);
+
+    try {
+      // [서버 통신] 3. 뒤에서 몰래 진짜 DB에 5줄 추가 요청을 보냅니다.
+      const newSavedRows = await Promise.all(Array.from({ length: 5 }).map(() => addPurchase()));
+      
+      // [UI 후처리] 4. 서버가 진짜 ID가 박힌 진짜 데이터를 주면, 화면의 가짜 데이터를 싹 치환합니다.
+      setLocalData(prev => {
+        const tempIds = tempRows.map(t => t.id);
+        const filteredPrev = prev.filter(item => !tempIds.includes(item.id));
+        return [...newSavedRows, ...filteredPrev];
+      });
+    } catch (error) {
+      console.error('추가 실패:', error);
+      setLocalData(previousData); // 에러 나면 5줄 추가했던 거 롤백
+      alert('새 항목 추가 중 오류가 발생했습니다.');
+    }
   };
 
   // --- 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직) ---
