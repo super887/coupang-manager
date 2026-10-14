@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition, useRef } from 'react';
-import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase, addFivePurchases } from '@/app/actions/purchase';
+import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicatePurchase } from '@/app/actions/purchase';
 import { generateAiReview } from '@/app/actions/ai';
 type Purchase = {
   id: string;
@@ -162,15 +162,16 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   };
 
 
-// 🛡️ 프론트엔드: 반복문 싹 제거, 오직 딱 1번만 서버 호출!
+// 🛡️ 프론트엔드: 완벽하게 짜여진 형님의 원래 함수(addPurchase)를 딱 1번만 호출!
   const handleAddRow = async () => {
-    setIsAdding(true); // 버튼 잠금
+    setIsAdding(true); // 버튼 잠금 (광클 방지)
     
     try {
-      // 🚨 주의: 여기에 Array.from이나 Promise.all이 들어가면 절대 안 됩니다!
-      // 오직 아래 한 줄만 있어야 합니다.
-      const newSavedRows = await addFivePurchases();
+      // 🚨 addFivePurchases가 아니라 형님의 원래 함수 addPurchase를 호출합니다!
+      // 이 함수가 이미 서버에서 5줄을 한 방에 묶어서(transaction) 번개처럼 만들어옵니다.
+      const newSavedRows = await addPurchase();
       
+      // 서버에서 받은 5줄을 화면 맨 위에 즉시 추가
       setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);

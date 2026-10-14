@@ -108,20 +108,3 @@ export async function duplicatePurchase(id: string) {
 
 // app/actions/purchase.ts 맨 아래
 
-// ✨ 서버: 딱 5개만 안전하게 생성해서 프론트엔드로 돌려줌
-export async function addFivePurchases() {
-  try {
-    const results = [];
-    
-    // DB 병목 방지: Promise.all 대신 아주 빠른 for문 사용
-    for (let i = 0; i < 5; i++) {
-      const row = await addPurchase();
-      results.push(row);
-    }
-    
-    return results; // 정확히 5개만 반환
-  } catch (error) {
-    console.error("[서버] 5줄 추가 중 에러 발생:", error);
-    throw error;
-  }
-}
