@@ -8,6 +8,9 @@ import Link from 'next/link';
 import PurchaseTable from '@/components/PurchaseTable';
 import { getPurchases } from '@/app/actions/purchase';
 
+// ✨ Vercel 서버 타임아웃 60초 연장 설정은 페이지 컴포넌트 파일에 배치합니다.
+export const maxDuration = 60;
+
 async function DashboardContent() {
   const session = await verifySession();
   if (!session?.userId) redirect('/login');

@@ -1,6 +1,6 @@
 'use server';
 
-export const maxDuration = 60;
+
 
 import prisma from '@/lib/prisma';
 import { verifySession } from '@/lib/session';
@@ -27,7 +27,7 @@ export async function generateAiReview(purchaseId: string, productName: string) 
       contents: [{ parts: [{ text: finalPrompt }] }]
     })
   });
-  
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'API 요청에 실패했습니다.');
 
