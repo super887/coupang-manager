@@ -18,15 +18,16 @@ export async function generateAiReview(purchaseId: string, productName: string) 
   const userPrompt = user.customPrompt || '';
   const finalPrompt = `${userPrompt}\n\n[제품명]: ${productName}`;
 
-  // 3. Gemini API 호출 (Gemini 2.5 Flash 모델)
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${user.geminiApiKey}`, {
+  
+// 3. Gemini API 호출 (Gemini 3.5 Flash Lite 모델로 완벽 교체)
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${user.geminiApiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: finalPrompt }] }]
     })
   });
-
+  
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'API 요청에 실패했습니다.');
 

@@ -128,8 +128,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     });
   };
 
-// ✨ 전체 AI 리뷰 생성 최적화 로직 (중복 상품명 DB 일괄 저장 완벽 적용)
-// ✨ 전체 AI 리뷰 생성 최적화 로직 (구글 API 속도 제한 및 에러 방어 완벽 적용)
+// ✨ 전체 AI 리뷰 생성 (Flash Lite 15개 분할 생성 로직 적용)
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
       r.reviewType === '(빈)텍스트' && 
@@ -140,9 +139,15 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     if (targets.length === 0) return alert('생성할 대상이 없습니다.\n(조건: (빈)텍스트 + 생성된 리뷰 없음 + 상품명 입력됨)');
     
     // 중복된 상품명 제거 (API 호출 횟수 단축)
-    const uniqueProductNames = Array.from(new Set(targets.map(t => t.productName.trim())));
+    let uniqueProductNames = Array.from(new Set(targets.map(t => t.productName.trim())));
 
-    if (!confirm(`총 ${targets.length}개의 빈 항목이 발견되었습니다.\n중복을 제외한 [${uniqueProductNames.length}개]의 상품명에 대해 AI 생성을 시작합니다.`)) return;
+    // ✨ 핵심: 15개가 넘어가면 15개까지만 자르고 알림 띄우기
+    if (uniqueProductNames.length > 15) {
+      alert(`구글 AI의 분당 최대 생성 한도(15개)를 초과하여, 먼저 15개의 상품에 대해서만 리뷰를 생성합니다.\n\n이 작업이 완료된 후 다시 '전체 AI 생성' 버튼을 눌러 남은 항목을 진행해 주세요!`);
+      uniqueProductNames = uniqueProductNames.slice(0, 15);
+    }
+
+    if (!confirm(`총 [${uniqueProductNames.length}개]의 고유 상품명에 대해 AI 생성을 시작합니다.\n(안전한 생성을 위해 약 ${uniqueProductNames.length * 5}초가 소요됩니다)`)) return;
 
     setIsBulkGenerating(true);
     cancelBulkRef.current = false;
@@ -155,12 +160,12 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       
       try {
         const matchingRows = targets.filter(t => t.productName.trim() === currentProductName);
-        const sampleId = matchingRows[0].id; // 첫 번째 대표 행의 ID
+        const sampleId = matchingRows[0].id;
 
         // 1. 대표로 한 번만 AI API 호출
         const generatedText = await generateAiReview(sampleId, currentProductName);
         
-        // 2. 동일한 상품명을 가진 2번째, 3번째 행들도 DB에 확실하게 저장 (복사)
+        // 2. 동일한 상품명을 가진 나머지 행들도 DB에 일괄 복사 저장
         const otherRows = matchingRows.slice(1);
         for (const row of otherRows) {
           await updatePurchase(row.id, { ...row, generatedReview: generatedText });
@@ -174,12 +179,11 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
         ));
       } catch (e) { 
         console.error(`생성 실패 (${currentProductName}):`, e); 
-        // ✨ 핵심 1: 에러 발생 시 조용히 넘어가지 않고 팝업 띄우고 즉시 중단!
-        alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.\n(구글 AI API 속도 제한이거나 Vercel 시간 초과입니다. 약 1분 후 다시 시도해주세요.)`);
-        break; // 계속 실패할 게 뻔하므로 헛돌지 않게 강제 중단
+        alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.\n(잠시 후 다시 시도해 주세요.)`);
+        break; 
       }
       
-      // ✨ 핵심 2: 구글 AI 무료 버전 한도를 피하기 위해 대기 시간을 1.5초 -> 5초로 대폭 늘림!
+      // 구글 AI 속도 제한 회피를 위한 5초 딜레이
       if (i < uniqueProductNames.length - 1 && !cancelBulkRef.current) {
         await new Promise(res => setTimeout(res, 5000));
       }
@@ -187,6 +191,9 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     
     setIsBulkGenerating(false);
     setBulkProgress({ current: 0, total: 0 });
+    
+    // 생성이 무사히 끝나면 친절하게 다음 행동 안내
+    alert('✅ 요청하신 AI 리뷰 생성이 완료되었습니다!\n\n아직 (빈)텍스트가 남아있다면 버튼을 한 번 더 눌러주세요.');
   };
 
   const handleCopy = (text: string) => {
