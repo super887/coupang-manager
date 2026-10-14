@@ -161,28 +161,32 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     }
   };
 
-// ✨ 낙관적 업데이트 5: 항목 5줄 추가 (0.1초 컷)
+// ✨ 낙관적 업데이트 5: 항목 5줄 추가 (순차 통신 적용)
   const handleAddRow = async () => {
     const previousData = [...localData];
     
-    // [UI 즉시 변경] 1. 가짜 ID를 가진 빈 껍데기 줄 5개를 만듭니다.
+    // 1. 임시 가짜 ID로 5줄 즉시 생성
     const tempRows = Array.from({ length: 5 }).map((_, index) => ({
-      id: `temp-add-${Date.now()}-${index}`, // 가짜 임시 ID
-      purchaseDate: new Date().toISOString().split('T')[0], // 오늘 날짜
+      id: `temp-add-${Date.now()}-${index}`,
+      purchaseDate: new Date().toISOString().split('T')[0],
       accountHolder: '', platform: '', productName: '', chatRoomName: '', paybackName: '',
       contactOnBangpok: '', memo: '', price: 0, reviewType: '(빈)텍스트',
       generatedReview: null, isReviewWritten: false, isProductPayback: false, isReviewPayback: false,
-      createdAt: new Date(Date.now() + (5 - index) * 1000) // 맨 위에 순서대로 뜨도록 미래 시간 조작
+      createdAt: new Date(Date.now() + (5 - index) * 1000)
     }));
 
-    // 2. 화면 맨 위에 0.1초 만에 즉시 끼워 넣습니다.
+    // 2. 화면에 0.1초 만에 5줄 뿅! 나타나게 렌더링
     setLocalData(prev => [...tempRows, ...prev] as Purchase[]);
 
     try {
-      // [서버 통신] 3. 뒤에서 몰래 진짜 DB에 5줄 추가 요청을 보냅니다.
-      const newSavedRows = await Promise.all(Array.from({ length: 5 }).map(() => addPurchase()));
+      // 3. 서버 충돌 방지: Promise.all을 빼고 한 줄씩 차례대로 5번 통신!
+      const newSavedRows = [];
+      for (let i = 0; i < 5; i++) {
+        const savedRow = await addPurchase();
+        newSavedRows.push(savedRow);
+      }
       
-      // [UI 후처리] 4. 서버가 진짜 ID가 박힌 진짜 데이터를 주면, 화면의 가짜 데이터를 싹 치환합니다.
+      // 4. 조용히 서버 저장이 끝나면 화면의 임시 ID를 진짜 ID로 슬쩍 바꿔치기
       setLocalData(prev => {
         const tempIds = tempRows.map(t => t.id);
         const filteredPrev = prev.filter(item => !tempIds.includes(item.id));
@@ -190,8 +194,8 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       });
     } catch (error) {
       console.error('추가 실패:', error);
-      setLocalData(previousData); // 에러 나면 5줄 추가했던 거 롤백
-      alert('새 항목 추가 중 오류가 발생했습니다.');
+      setLocalData(previousData); // 에러 시 롤백
+      alert('항목 추가 중 오류가 발생했습니다. 새로고침(F5)을 눌러주세요.');
     }
   };
 
