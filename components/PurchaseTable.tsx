@@ -213,7 +213,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
               <th className="px-2 py-3 border-r w-[140px] text-center">상품명</th>
               <th className="px-2 py-3 border-r w-[130px] text-center">카톡방명</th>
               <th className="px-2 py-3 border-r w-[100px] text-center">페이백명</th>
-              <th className="px-2 py-3 border-r w-[120px] text-center">방폭 연락처</th>
+              <th className="px-2 py-3 border-r w-[120px] text-center">기타 메모</th>
               <th className="px-2 py-3 border-r w-[80px] text-center">가격</th>
               <th className="px-2 py-3 border-r w-[100px] text-center">리뷰 타입</th>
               <th className="px-2 py-3 border-r w-[80px] text-center">AI 리뷰</th>
