@@ -108,27 +108,18 @@ export async function duplicatePurchase(id: string) {
 
 // app/actions/purchase.ts 맨 아래
 
-// ✨ 서버 단일 통신 + DB 동시 생성 (Vercel 로그 확인용)
+// ✨ 서버: 딱 5개만 안전하게 생성해서 프론트엔드로 돌려줌
 export async function addFivePurchases() {
-  console.log("==================================");
-  console.log("[서버] 5줄 추가 요청 수신됨 - 타이머 시작");
-  const startTime = Date.now();
-
   try {
-    // for문(순차) 대신 Promise.all로 5개를 DB에 '동시에' 꽂아버립니다. (맨 처음 빨랐던 방식)
-    const results = await Promise.all([
-      addPurchase(),
-      addPurchase(),
-      addPurchase(),
-      addPurchase(),
-      addPurchase()
-    ]);
-
-    const endTime = Date.now();
-    console.log(`[서버] 5줄 추가 완료! 걸린 시간: ${endTime - startTime}ms`);
-    console.log("==================================");
+    const results = [];
     
-    return results;
+    // DB 병목 방지: Promise.all 대신 아주 빠른 for문 사용
+    for (let i = 0; i < 5; i++) {
+      const row = await addPurchase();
+      results.push(row);
+    }
+    
+    return results; // 정확히 5개만 반환
   } catch (error) {
     console.error("[서버] 5줄 추가 중 에러 발생:", error);
     throw error;
