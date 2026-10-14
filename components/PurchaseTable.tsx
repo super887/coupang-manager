@@ -128,9 +128,8 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     });
   };
 
-  // ✨ 전체 AI 리뷰 생성 최적화 로직 (상품명 중복 제거)
+// ✨ 전체 AI 리뷰 생성 최적화 로직 (중복 상품명 DB 일괄 저장 완벽 적용)
   const handleBulkGenerateAi = async () => {
-    // 1. (빈)텍스트이고, 아직 리뷰가 없으며, 상품명이 입력된 타겟 추출
     const targets = localData.filter(r => 
       r.reviewType === '(빈)텍스트' && 
       !r.generatedReview && 
@@ -139,7 +138,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     
     if (targets.length === 0) return alert('생성할 대상이 없습니다.\n(조건: (빈)텍스트 + 생성된 리뷰 없음 + 상품명 입력됨)');
     
-    // 2. ✨ 중복된 상품명 제거 (API 호출 횟수 단축)
+    // 중복된 상품명 제거 (API 호출 횟수 단축)
     const uniqueProductNames = Array.from(new Set(targets.map(t => t.productName.trim())));
 
     if (!confirm(`총 ${targets.length}개의 빈 항목이 발견되었습니다.\n중복을 제외한 [${uniqueProductNames.length}개]의 상품명에 대해 AI 생성을 시작합니다.`)) return;
@@ -147,7 +146,6 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     setIsBulkGenerating(true);
     cancelBulkRef.current = false;
     
-    // 3. 상품명 개수만큼만 반복해서 AI 호출!
     for (let i = 0; i < uniqueProductNames.length; i++) {
       if (cancelBulkRef.current) { alert('생성 작업이 취소되었습니다.'); break; }
       
@@ -155,11 +153,20 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       setBulkProgress({ current: i + 1, total: uniqueProductNames.length });
       
       try {
-        // 해당 상품명을 가진 첫 번째 아이디를 넘겨서 AI 생성
-        const sampleId = targets.find(t => t.productName.trim() === currentProductName)?.id || '';
+        // 1. 현재 상품명과 일치하는 모든 행 찾기
+        const matchingRows = targets.filter(t => t.productName.trim() === currentProductName);
+        const sampleId = matchingRows[0].id; // 첫 번째 대표 행의 ID
+
+        // 2. 대표로 한 번만 AI API 호출 (구글 할당량 절약)
         const generatedText = await generateAiReview(sampleId, currentProductName);
         
-        // ✨ 마법의 코드: 방금 생성한 텍스트를 "동일한 상품명을 가진 모든 빈 항목"에 동시에 덮어씌움!
+        // 3. ✨ 핵심 수정: 동일한 상품명을 가진 2번째, 3번째 행들도 DB에 확실하게 저장 (복사)
+        const otherRows = matchingRows.slice(1);
+        for (const row of otherRows) {
+          await updatePurchase(row.id, { ...row, generatedReview: generatedText });
+        }
+
+        // 4. 화면(UI) 즉시 업데이트: 방금 생성(복사)한 텍스트를 화면에 바로 씌우고 '보기' 버튼으로 전환
         setLocalData(prev => prev.map(r => 
           (r.reviewType === '(빈)텍스트' && !r.generatedReview && r.productName.trim() === currentProductName)
             ? { ...r, generatedReview: generatedText }
