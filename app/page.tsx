@@ -89,7 +89,7 @@ async function DashboardContent() {
         <ApiKeyForm initialHasKey={hasApiKey} initialPrompt={user.customPrompt} />
 
         <div className="mt-6">
-          <PurchaseTable accounts="{accounts}"/>
+          <PurchaseTable accounts={accounts} />
         </div>
       </main>
     </div>

@@ -5,6 +5,9 @@ import { addPurchase, updatePurchase, deletePurchase, deletePurchases, duplicate
 import { generateAiReview } from '@/app/actions/ai';
 
 export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
+  // ✨ 핵심 방어막: accounts가 정상적인 배열이 아니면 강제로 빈 배열[]로 만들어버림 (절대 안 터짐)
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+
   // --- 페이징, 검색, 탭 상태 관리 ---
   const [activeTab, setActiveTab] = useState<'progress' | 'completed'>('progress');
   const [currentPage, setCurrentPage] = useState(1);
@@ -66,12 +69,10 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setAppliedSearch('');
   };
 
-  // ✨ 안전한 텍스트 입력 핸들러
   const handleLocalChange = (id: string, field: string, value: any) => {
     setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // ✨ 수정 모드 진입 핸들러
   const handleEdit = (id: string) => {
     setEditingRows(prev => {
       const next = new Set(prev);
@@ -80,7 +81,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     });
   };
 
-  // --- 체크박스 3종 낙관적 탭 이동 ---
   const handleCheckChange = async (id: string, field: string, value: boolean) => {
     const row = localData.find(r => r.id === id);
     if (!row) return;
@@ -105,7 +105,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     alert('복사되었습니다!');
   };
 
-  // ✨ 잃어버렸던 개별 체크박스 기능 완벽 복구
   const toggleRowSelection = (id: string) => {
     setSelectedRows(prev => {
       const next = new Set(prev);
@@ -120,7 +119,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     else setSelectedRows(new Set(localData.map(r => r.id)));
   };
 
-  // --- 단일 AI 생성 ---
   const handleGenerateAi = async (id: string, productName: string) => {
     try {
       const generatedText = await generateAiReview(id, productName);
@@ -131,23 +129,15 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     }
   };
 
-  // --- 전체 AI 리뷰 생성 ---
   const handleBulkGenerateAi = async () => {
-    const targets = localData.filter(r => 
-      r.reviewType === '(빈)텍스트' && 
-      !r.generatedReview && 
-      (r.productName || '').trim() !== ''
-    );
-    
+    const targets = localData.filter(r => r.reviewType === '(빈)텍스트' && !r.generatedReview && (r.productName || '').trim() !== '');
     if (targets.length === 0) return alert('현재 화면에 생성할 대상이 없습니다.\n(조건: (빈)텍스트 + 생성된 리뷰 없음 + 상품명 입력됨)');
     
     let uniqueProductNames = Array.from(new Set(targets.map(t => t.productName.trim())));
-
     if (uniqueProductNames.length > 15) {
       alert(`구글 AI의 분당 최대 생성 한도(15개)를 초과하여, 먼저 15개의 상품에 대해서만 리뷰를 생성합니다.\n\n완료 후 다시 버튼을 눌러주세요!`);
       uniqueProductNames = uniqueProductNames.slice(0, 15);
     }
-
     if (!confirm(`현재 화면의 총 [${uniqueProductNames.length}개] 고유 상품명에 대해 AI 생성을 시작합니다.\n(안전한 생성을 위해 약 ${uniqueProductNames.length * 5}초가 소요됩니다)`)) return;
 
     setIsBulkGenerating(true);
@@ -168,10 +158,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
         for (const row of otherRows) {
           await updatePurchase(row.id, { ...row, generatedReview: generatedText });
         }
-        setLocalData(prev => prev.map(r => 
-          (r.reviewType === '(빈)텍스트' && !r.generatedReview && r.productName.trim() === currentProductName)
-            ? { ...r, generatedReview: generatedText } : r
-        ));
+        setLocalData(prev => prev.map(r => (r.reviewType === '(빈)텍스트' && !r.generatedReview && r.productName.trim() === currentProductName) ? { ...r, generatedReview: generatedText } : r));
       } catch (e) { 
         alert(`앗! '${currentProductName}' 생성 중 에러가 발생했습니다.`);
         break; 
@@ -184,7 +171,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     alert('✅ 요청하신 AI 리뷰 생성이 완료되었습니다!');
   };
 
-  // 🚀 저장, 삭제, 복제, 추가 로직
   const handleSave = async (row: any) => {
     if (row.id.startsWith('temp-')) return alert('서버에 생성 중입니다. 잠시 후 시도해주세요.');
     const prev = [...localData];
@@ -315,7 +301,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                 const isEditing = editingRows.has(row.id);
                 const isSelected = selectedRows.has(row.id);
                 
-                // ✨ 형님의 원래 체크박스 배경색 디자인 완벽 복구
                 const isWritten = row.isReviewWritten || false;
                 const isProductPayback = row.isProductPayback || false;
                 const isReviewPayback = row.isReviewPayback || false;
@@ -328,17 +313,18 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                 return (
                   <tr key={row.id} className={`${rowBg} transition-colors`}>
                     
-                    {/* ✨ 형님의 원래 Input 스타일 완전 복구 */}
+                    {/* ✨ 모든 입력창에 절대 안 터지는 방탄조끼 장착 */}
                     <td className="p-1 border-r text-center">
-                      {isEditing ? <input type="date" value={row.purchaseDate || ''} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}
+                      {isEditing ? <input type="date" value={typeof row.purchaseDate === 'string' ? row.purchaseDate : ''} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 text-xs">{row.purchaseDate}</div>}
                     </td>
 
                     <td className="p-1 border-r text-center">
                       {isEditing ? (
                         <select value={row.accountHolder || ''} onChange={(e) => handleLocalChange(row.id, 'accountHolder', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
                           <option value="">선택 안됨</option>
-                          {(accounts || []).map(acc => (
-                            <option key={acc.accountHolder} value={acc.accountHolder}>{acc.accountHolder}</option>
+                          {/* 🛡️ 여기서 safeAccounts만 사용하도록 100% 차단! */}
+                          {safeAccounts.map((acc, idx) => (
+                            <option key={acc?.accountHolder || idx} value={acc?.accountHolder || ''}>{acc?.accountHolder || '이름 없음'}</option>
                           ))}
                         </select>
                       ) : (
@@ -367,7 +353,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                     </td>
 
                     <td className="p-1 border-r text-right">
-                      {isEditing ? <input type="number" value={row.price || 0} onChange={(e) => handleLocalChange(row.id, 'price', parseInt(e.target.value) || 0)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-right text-xs" /> : <div className="py-2 px-1 text-xs">{(row.price || 0).toLocaleString()}</div>}
+                      {isEditing ? <input type="number" value={row.price ? Number(row.price) : 0} onChange={(e) => handleLocalChange(row.id, 'price', parseInt(e.target.value) || 0)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-right text-xs" /> : <div className="py-2 px-1 text-xs">{Number(row.price || 0).toLocaleString()}</div>}
                     </td>
 
                     <td className="p-1 border-r text-center">
