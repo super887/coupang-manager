@@ -106,13 +106,31 @@ export async function duplicatePurchase(id: string) {
 
 // app/actions/purchase.ts 맨 아래에 추가
 
-// ✨ 프론트엔드 대신 서버 내부에서 5개를 빛의 속도로 생성하는 함수
+// app/actions/purchase.ts 맨 아래
+
+// ✨ 서버 단일 통신 + DB 동시 생성 (Vercel 로그 확인용)
 export async function addFivePurchases() {
-  const results = [];
-  // 서버가 DB랑 직접 통신하므로 5번을 반복해도 1초도 안 걸립니다.
-  for (let i = 0; i < 5; i++) {
-    const row = await addPurchase();
-    results.push(row);
+  console.log("==================================");
+  console.log("[서버] 5줄 추가 요청 수신됨 - 타이머 시작");
+  const startTime = Date.now();
+
+  try {
+    // for문(순차) 대신 Promise.all로 5개를 DB에 '동시에' 꽂아버립니다. (맨 처음 빨랐던 방식)
+    const results = await Promise.all([
+      addPurchase(),
+      addPurchase(),
+      addPurchase(),
+      addPurchase(),
+      addPurchase()
+    ]);
+
+    const endTime = Date.now();
+    console.log(`[서버] 5줄 추가 완료! 걸린 시간: ${endTime - startTime}ms`);
+    console.log("==================================");
+    
+    return results;
+  } catch (error) {
+    console.error("[서버] 5줄 추가 중 에러 발생:", error);
+    throw error;
   }
-  return results;
 }

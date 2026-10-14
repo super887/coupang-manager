@@ -153,16 +153,15 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   };
 
 
-  // 🛡️ 완벽한 통신: 한 번의 요청으로 5줄 추가 (타임아웃 100% 해결)
+// 🛡️ 완벽한 통신: 한 번의 요청으로 5줄 동시 추가
   const handleAddRow = async () => {
-    setIsAdding(true); // 광클 방지 잠금
+    setIsAdding(true); // 광클 방지 (버튼 회색으로 잠김)
     
     try {
-      // 프론트엔드는 미국 서버에 딱 '1번'만 요청합니다. 
-      // 서버가 알아서 5개를 만들어서 배열로 던져줍니다.
+      // 프론트엔드는 1번만 요청하고, 뒤에서 서버가 5개를 '동시에' 만듭니다.
       const newSavedRows = await addFivePurchases();
       
-      // 화면 맨 위에 즉시 뿌려주기
+      // 완료되면 화면 맨 위에 추가
       setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);
@@ -171,6 +170,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       setIsAdding(false); 
     }
   };
+  
   // 🛡️ 안전한 통신: 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직)
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
