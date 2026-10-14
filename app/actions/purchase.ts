@@ -4,19 +4,56 @@ import prisma from '@/lib/prisma';
 import { verifySession } from '@/lib/session';
 import { revalidatePath } from 'next/cache';
 
-export async function getPurchases() {
+// ✨ 페이징 + 검색 + 완료탭 필터링을 한 방에 처리하는 만능 함수
+export async function getPaginatedPurchases({
+  page = 1,
+  pageSize = 100, // 한 페이지 100개
+  searchField = 'productName',
+  searchKeyword = '',
+  isCompleted = false
+}) {
   const session = await verifySession();
-  if (!session?.userId) return [];
-  return await prisma.purchase.findMany({
-    where: { userId: session.userId },
-    orderBy: [
-      { createdAt: 'desc' }, 
-      { id: 'desc' }
-    ],
-  });
+  if (!session?.userId) throw new Error('로그인이 필요합니다.');
+
+  const where: any = { userId: session.userId };
+
+  // 탭 필터링 로직: 3개 모두 체크되면 '완료', 하나라도 안 되면 '진행 중'
+  if (isCompleted) {
+    where.isReviewWritten = true;
+    where.isProductPayback = true;
+    where.isReviewPayback = true;
+  } else {
+    where.OR = [
+      { isReviewWritten: false },
+      { isProductPayback: false },
+      { isReviewPayback: false }
+    ];
+  }
+
+  // 검색 필터링 로직
+  if (searchKeyword.trim() !== '') {
+    // 필드에 따라 유연하게 검색
+    where[searchField] = { contains: searchKeyword };
+  }
+
+  // DB에서 개수와 데이터를 동시에 뽑아옴 (Promise.all로 속도 극대화)
+  const [items, totalCount] = await Promise.all([
+    prisma.purchase.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.purchase.count({ where })
+  ]);
+
+  return { 
+    items, 
+    totalCount, 
+    totalPages: Math.ceil(totalCount / pageSize) 
+  };
 }
 
-// ✨ 디폴트 계정주(defaultAccount)를 파라미터로 받도록 수정
 export async function addPurchase(defaultAccount: string = '') {
   const session = await verifySession();
   if (!session?.userId) throw new Error('로그인이 필요합니다.');
@@ -24,7 +61,7 @@ export async function addPurchase(defaultAccount: string = '') {
   const defaultData = {
     userId: session.userId,
     purchaseDate: new Date().toISOString().split('T')[0],
-    accountHolder: defaultAccount, // ✨ 디폴트 계정주 적용
+    accountHolder: defaultAccount,
     productName: '',
     chatRoomName: '',
     platform: '쿠팡',
@@ -38,7 +75,6 @@ export async function addPurchase(defaultAccount: string = '') {
     Array.from({ length: 5 }).map(() => prisma.purchase.create({ data: defaultData }))
   );
 
-  revalidatePath('/');
   return newRows;
 }
 
@@ -50,7 +86,6 @@ export async function updatePurchase(id: string, data: any) {
     where: { id, userId: session.userId },
     data: updateFields,
   });
-  revalidatePath('/');
 }
 
 export async function deletePurchase(id: string) {
@@ -59,7 +94,6 @@ export async function deletePurchase(id: string) {
   await prisma.purchase.delete({
     where: { id, userId: session.userId },
   });
-  revalidatePath('/');
 }
 
 export async function deletePurchases(ids: string[]) {
@@ -68,43 +102,19 @@ export async function deletePurchases(ids: string[]) {
   await prisma.purchase.deleteMany({
     where: { id: { in: ids }, userId: session.userId },
   });
-  revalidatePath('/');
 }
 
 export async function duplicatePurchase(id: string) {
   try {
-    // 1. 복제할 원본 데이터 가져오기
-    const existing = await prisma.purchase.findUnique({
-      where: { id },
-    });
-
-    if (!existing) {
-      throw new Error('항목을 찾을 수 없습니다.');
-    }
-
-    // 2. 기존 항목에서 고유 ID와 시간 관련 필드를 제외하고 내용물만 쏙 빼기
+    const existing = await prisma.purchase.findUnique({ where: { id } });
+    if (!existing) throw new Error('항목을 찾을 수 없습니다.');
     const { id: _, createdAt, updatedAt, ...dataToDuplicate } = existing;
-
-    // ✨ 마법의 코드: 원래 행의 생성 시간(createdAt)에서 딱 '1초(1000ms)'만 더 미래로 조작!
-    // 이렇게 하면 무조건 원래 행의 '바로 위'에 붙박이처럼 영구 고정됩니다.
     const fakeCreatedAt = new Date(createdAt.getTime() + 1000);
-
-    // 3. 조작된 시간을 넣어서 DB에 생성
     const newPurchase = await prisma.purchase.create({
-      data: {
-        ...dataToDuplicate,
-        createdAt: fakeCreatedAt, // 👈 여기가 핵심입니다!
-      },
+      data: { ...dataToDuplicate, createdAt: fakeCreatedAt },
     });
-
     return newPurchase;
   } catch (error) {
-    console.error('Failed to duplicate purchase:', error);
     throw new Error('항목 복제에 실패했습니다.');
   }
 }
-
-// app/actions/purchase.ts 맨 아래에 추가
-
-// app/actions/purchase.ts 맨 아래
-
