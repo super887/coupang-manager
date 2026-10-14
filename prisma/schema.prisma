@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  name         String
+  phone        String     @unique
+  geminiApiKey String?
+  customPrompt String     @default("이 제품을 직접 사용해본 것처럼 자연스럽고 긍정적인 리뷰를 300자 내외로 작성해 주세요.") // 수정됨
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  purchases    Purchase[]
+  
+  // ✨ 이 두 줄을 반드시 추가해야 합니다! ✨
+  accountInfos   AccountInfo[]
+  sellerInfos    SellerInfo[]
+
+  @@unique([name, phone])
+}
+
+model Purchase {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchaseDate     String
+  
+  accountHolder    String   @default("") // ✨ 이 줄이 포함된 녀석 딱 하나만 남겨주세요!
+  
+  productName      String
+  chatRoomName     String
+  platform         String   @default("쿠팡")
+  price            Int
+  reviewType       String
+  paybackName      String
+  contactOnBangpok String
+  isReviewWritten  Boolean  @default(false)
+  isProductPayback Boolean  @default(false)
+  isReviewPayback  Boolean  @default(false)
+  generatedReview  String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model AccountInfo {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform        String   @default("쿠팡")
+  accountHolder   String   // 계정주 (목록에 표시될 대표 이름)
+  recipient1      String   @default("")
+  recipient2      String   @default("")
+  recipient3      String   @default("")
+  loginId         String   @default("")
+  phoneNumber     String   @default("")
+  address1        String   @default("")
+  address2        String   @default("")
+  address3        String   @default("")
+  paybackAccount1 String   @default("")
+  paybackAccount2 String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model SellerInfo {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName    String   @default("") // 업체명
+  submissionForm String   @default("") // 제출 양식 (긴 텍스트)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+}
