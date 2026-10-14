@@ -258,7 +258,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
             disabled={isPending || isBulkGenerating || isAdding} 
             className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed w-[130px]"
           >
-            {isAdding ? '⏳ 추가 중...' : '+ 새 항목 5줄 추가'}
+            {isAdding ? '⏳ 추가 중...' : '새 항목 5줄 추가'}
           </button>
         </div>
       </div>
