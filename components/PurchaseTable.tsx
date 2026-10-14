@@ -71,13 +71,22 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
     setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // 🚀 낙관적 업데이트 1: 저장 (0.1초 컷)
+// 🚀 낙관적 업데이트 1: 저장 (DB 충돌 방지 적용)
   const handleSave = async (row: Purchase) => {
+    // 1. 가짜 ID 방어: 아직 서버에서 진짜 ID를 못 받은 줄은 수정 통신을 막음
+    if (row.id.startsWith('temp-')) {
+      alert('아직 서버에 생성 중인 항목입니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
     const previousData = [...localData];
     setEditingRows(prev => { const next = new Set(prev); next.delete(row.id); return next; });
 
     try {
-      await updatePurchase(row.id, row);
+      // 2. 핵심 해결책: DB에 없는 'memo' 속성을 데이터에서 쏙 빼버리고 안전한 데이터만 서버로 보냅니다.
+      const { memo, ...safeDataToUpdate } = row;
+      
+      await updatePurchase(row.id, safeDataToUpdate);
     } catch (error) {
       console.error('수정 실패:', error);
       setLocalData(previousData);
@@ -153,15 +162,15 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
   };
 
 
-// 🛡️ 완벽한 통신: 한 번의 요청으로 5줄 동시 추가
+// 🛡️ 안전한 통신: 한 번의 요청으로 5줄 동시 추가 (가짜 ID 안 씀)
   const handleAddRow = async () => {
-    setIsAdding(true); // 광클 방지 (버튼 회색으로 잠김)
+    setIsAdding(true); // 버튼 비활성화 (광클 방지)
     
     try {
-      // 프론트엔드는 1번만 요청하고, 뒤에서 서버가 5개를 '동시에' 만듭니다.
+      // 아까 서버에 만들어둔 'addFivePurchases'를 호출해 4초 만에 5개를 동시에 가져옵니다.
       const newSavedRows = await addFivePurchases();
       
-      // 완료되면 화면 맨 위에 추가
+      // 진짜 ID가 박힌 완벽한 5줄만 화면 맨 위에 추가합니다.
       setLocalData(prev => [...newSavedRows, ...prev]);
     } catch (error) {
       console.error('추가 실패:', error);
@@ -170,7 +179,7 @@ export default function PurchaseTable({ initialData, accounts }: { initialData: 
       setIsAdding(false); 
     }
   };
-  
+
   // 🛡️ 안전한 통신: 전체 AI 리뷰 생성 (Flash Lite 15개 제한 로직)
   const handleBulkGenerateAi = async () => {
     const targets = localData.filter(r => 
