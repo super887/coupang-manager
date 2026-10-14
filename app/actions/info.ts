@@ -14,17 +14,21 @@ export async function getAccounts() {
   });
 }
 
+// ✨ 프론트엔드가 즉시 화면에 그릴 수 있도록 생성된 데이터(newAccount)를 반환!
 export async function addAccount() {
   const session = await verifySession();
   if (!session?.userId) throw new Error('로그인이 필요합니다.');
-  await prisma.accountInfo.create({
+  
+  const newAccount = await prisma.accountInfo.create({
     data: {
       userId: session.userId,
       platform: '쿠팡',
       accountHolder: '새 계정',
     }
   });
+  
   revalidatePath('/accounts');
+  return newAccount; // 👈 반환값 추가
 }
 
 export async function updateAccount(id: string, data: any) {
@@ -57,16 +61,20 @@ export async function getSellers() {
   });
 }
 
+// ✨ 판매자 추가도 동일하게 데이터 반환 추가
 export async function addSeller() {
   const session = await verifySession();
   if (!session?.userId) throw new Error('로그인이 필요합니다.');
-  await prisma.sellerInfo.create({
+  
+  const newSeller = await prisma.sellerInfo.create({
     data: {
       userId: session.userId,
       companyName: '새 업체',
     }
   });
+  
   revalidatePath('/accounts');
+  return newSeller; // 👈 반환값 추가
 }
 
 export async function updateSeller(id: string, data: any) {

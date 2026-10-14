@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect } from 'react';
 import { addAccount, updateAccount, deleteAccount } from '@/app/actions/info';
 
 type AccountInfo = {
@@ -22,39 +22,73 @@ type AccountInfo = {
 export default function AccountManager({ initialData }: { initialData: AccountInfo[] }) {
   const [localData, setLocalData] = useState<AccountInfo[]>(initialData);
   const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
-  const [isPending, startTransition] = useTransition();
+  const [isAdding, setIsAdding] = useState(false); // ✨ 새 항목 추가 잠금 상태
 
   useEffect(() => {
     setLocalData(initialData);
   }, [initialData]);
 
-  const handleAdd = () => {
-    startTransition(async () => {
-      await addAccount();
-      // 새 항목이 추가되면 페이지가 새로고침되며 initialData가 갱신됩니다.
-    });
+  // 🛡️ 안전한 통신: 계정 추가 (가짜 ID 방지 및 광클 차단)
+  const handleAdd = async () => {
+    setIsAdding(true);
+    try {
+      const newAccount = await addAccount();
+      // 서버에서 진짜 ID가 발급된 새 계정을 받아와서 즉시 화면 맨 위에 추가!
+      setLocalData(prev => [newAccount as unknown as AccountInfo, ...prev]);
+    } catch (error) {
+      console.error('추가 실패:', error);
+      alert('계정 추가 중 오류가 발생했습니다.');
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   const handleLocalChange = (id: string, field: keyof AccountInfo, value: string) => {
+    // 키보드 입력 시 화면은 0.01초 만에 즉시 변경 (에러 없음)
     setLocalData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
   const handleEdit = (id: string) => setEditingIds(prev => new Set(prev).add(id));
 
-  const handleSave = (item: AccountInfo) => {
-    startTransition(async () => {
+  // 🚀 낙관적 업데이트 1: 저장 (0.1초 컷)
+  const handleSave = async (item: AccountInfo) => {
+    // 이미 화면은 입력한 대로 바뀌어 있으니, 수정 모드(노란불)만 즉시 꺼줍니다.
+    setEditingIds(prev => {
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+
+    try {
+      // 뒤에서 조용히 서버로 데이터 업데이트
       await updateAccount(item.id, item);
+    } catch (error) {
+      console.error('수정 실패:', error);
+      // 실패하면 다시 수정 모드로 롤백
       setEditingIds(prev => {
         const next = new Set(prev);
-        next.delete(item.id);
+        next.add(item.id);
         return next;
       });
-    });
+      alert('수정에 실패했습니다. 다시 시도해주세요.');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('이 계정 정보를 삭제하시겠습니까?')) {
-      startTransition(() => deleteAccount(id));
+  // 🚀 낙관적 업데이트 2: 단일 삭제 (0.1초 컷)
+  const handleDelete = async (id: string) => {
+    if (!confirm('이 계정 정보를 삭제하시겠습니까?')) return;
+
+    const previousData = [...localData];
+    // 화면에서 즉시 삭제 (로딩 X)
+    setLocalData(prev => prev.filter(item => item.id !== id));
+
+    try {
+      // 몰래 서버 삭제 진행
+      await deleteAccount(id);
+    } catch (error) {
+      console.error('삭제 실패:', error);
+      setLocalData(previousData); // 실패 시 화면 복구
+      alert('삭제에 실패했습니다.');
     }
   };
 
@@ -64,10 +98,10 @@ export default function AccountManager({ initialData }: { initialData: AccountIn
         <h2 className="text-lg font-bold text-gray-800">👤 계정 정보 관리</h2>
         <button
           onClick={handleAdd}
-          disabled={isPending}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+          disabled={isAdding}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-[120px]"
         >
-          + 계정 추가
+          {isAdding ? '⏳ 추가 중...' : '+ 계정 추가'}
         </button>
       </div>
 
@@ -134,7 +168,7 @@ function FieldRow({ label, value, isEditing, onChange, fullWidth = false }: { la
     <div className={`flex items-center gap-2 ${fullWidth ? 'w-full' : ''}`}>
       <span className="w-24 text-gray-500 font-medium shrink-0">{label}</span>
       {isEditing ? (
-        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 p-1.5 border rounded outline-none focus:ring-2 focus:ring-blue-500 w-full" />
+        <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} className="flex-1 p-1.5 border rounded outline-none focus:ring-2 focus:ring-blue-500 w-full" />
       ) : (
         <span className="flex-1 text-gray-800 font-medium truncate">{value || '-'}</span>
       )}
