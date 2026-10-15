@@ -4,11 +4,10 @@ import { verifySession } from '@/lib/session';
 import { redirect } from 'next/navigation';
 import ApiKeyForm from '@/components/ApiKeyForm';
 import Link from 'next/link'; 
-import { logout } from '@/app/actions/auth'; // ✨ 로그아웃 액션 불러오기!
-
 import PurchaseTable from '@/components/PurchaseTable';
+import LogoutButton from '@/components/LogoutButton'; // ✨ 방탄 로그아웃 버튼 추가!
 
-// ✨ Vercel 서버 타임아웃 60초 연장 설정은 페이지 컴포넌트 파일에 배치합니다.
+// ✨ Vercel 서버 타임아웃 60초 연장 설정
 export const maxDuration = 60;
 
 async function DashboardContent() {
@@ -45,16 +44,12 @@ async function DashboardContent() {
             </nav>
           </div>
           
-          {/* ✨ 로그아웃 버튼이 추가된 우측 영역 */}
+          {/* ✨ 문제의 폼 태그를 싹 지우고 방탄 로그아웃 버튼으로 교체한 우측 영역 */}
           <div className="flex items-center gap-4">
             <span className="text-sm font-medium bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
               {user.name} 님
             </span>
-            <form action={logout}>
-              <button type="submit" className="text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                로그아웃
-              </button>
-            </form>
+            <LogoutButton />
           </div>
           
         </div>
