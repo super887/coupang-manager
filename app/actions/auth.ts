@@ -40,7 +40,12 @@ export async function loginAction(prevState: any, formData: FormData) {
   redirect('/');
 }
 
-// ✨ 수정됨: redirect를 빼서 라우터 충돌 및 쿠키 삭제 무시 버그를 원천 차단!
+// app/actions/auth.ts 파일의 맨 아래 로그아웃 함수 부분만 교체
+
 export async function logout() {
-  cookies().delete('session'); 
+  // .delete() 함수 대신, 유효기간을 과거로 돌려서 쿠키를 완벽하게 폭파시킵니다.
+  cookies().set('session', '', { 
+    expires: new Date(0), // 1970년으로 돌려서 즉시 폐기
+    path: '/',            // 전체 경로에서 삭제
+  }); 
 }
