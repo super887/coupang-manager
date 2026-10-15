@@ -163,7 +163,12 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setEditingRows(p => { const n = new Set(p); n.delete(row.id); return n; });
     try {
       const { memo, ...safeData } = row;
+      // ✨ DB(Prisma) 에러 방지: 문자로 된 가격을 저장할 땐 숫자로 완벽하게 변환 (빈 값이면 0으로 저장)
+      safeData.price = parseInt(safeData.price) || 0; 
       await updatePurchase(row.id, safeData);
+      
+      // 저장 완료 후 화면 상태에도 숫자형태로 다시 세팅
+      setLocalData(curr => curr.map(r => r.id === row.id ? { ...r, price: safeData.price } : r));
     } catch (e) { setLocalData(prev); alert('수정 실패'); }
   };
 
@@ -200,7 +205,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     } catch (e) { fetchData(); }
   };
 
-  // ✨ 새 항목 추가 즉시 '수정 모드' 활성화 적용
   const handleAddRow = async (e: React.MouseEvent) => {
     e.preventDefault();
     setIsAdding(true);
@@ -208,7 +212,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     try {
       const addedRows = await addPurchase();
       
-      // 방금 추가된 5개의 새 데이터를 받아서 바로 editingRows(수정 모드)에 강제 주입!
       if (addedRows && Array.isArray(addedRows)) {
         setEditingRows(prev => {
           const next = new Set(prev);
@@ -342,9 +345,22 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.contactOnBangpok)} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs" title={getStr(row.contactOnBangpok)}>{getStr(row.contactOnBangpok) || '-'}</div>}
                     </td>
+                    
+                    {/* ✨ 0일 경우 화면에서 빈 값으로 표시되게 변경! ✨ type="text" 로 일반텍스트 입력처럼! */}
                     <td className="p-1 border-r text-right">
-                      {isEditing ? <input type="number" value={getNum(row.price)} onChange={(e) => handleLocalChange(row.id, 'price', parseInt(e.target.value) || 0)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-right text-xs" /> : <div className="py-2 px-1 text-xs">{getNum(row.price).toLocaleString()}</div>}
+                      {isEditing ? (
+                        <input 
+                          type="text" 
+                          value={row.price === 0 ? '' : (row.price || '')} 
+                          onChange={(e) => handleLocalChange(row.id, 'price', e.target.value.replace(/[^0-9]/g, ''))} 
+                          placeholder="가격" 
+                          className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-right text-xs" 
+                        />
+                      ) : (
+                        <div className="py-2 px-1 text-xs">{row.price ? Number(row.price).toLocaleString() : ''}</div>
+                      )}
                     </td>
+
                     <td className="p-1 border-r text-center">
                       {isEditing ? (
                         <select value={getStr(row.reviewType) || '(빈)별점'} onChange={(e) => handleLocalChange(row.id, 'reviewType', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
