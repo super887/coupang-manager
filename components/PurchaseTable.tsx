@@ -20,7 +20,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
   const [localData, setLocalData] = useState<any[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [hideSpinner, setHideSpinner] = useState(false); // ✨ 2중 로딩 방지용 스피너 숨김 스위치
+  const [hideSpinner, setHideSpinner] = useState(false);
 
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
@@ -44,7 +44,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
       console.error('데이터 불러오기 실패:', error);
     } finally {
       setIsLoading(false);
-      setHideSpinner(false); // ✨ 데이터 로딩이 끝나면 스피너 숨김 스위치도 원래대로 초기화
+      setHideSpinner(false);
     }
   };
 
@@ -200,13 +200,23 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     } catch (e) { fetchData(); }
   };
 
-  // ✨ 새 항목 추가 시 2중 로딩 방지 적용
+  // ✨ 새 항목 추가 즉시 '수정 모드' 활성화 적용
   const handleAddRow = async (e: React.MouseEvent) => {
     e.preventDefault();
     setIsAdding(true);
-    setHideSpinner(true); // 👈 보라색 로딩창 표시 강제 차단
+    setHideSpinner(true);
     try {
-      await addPurchase();
+      const addedRows = await addPurchase();
+      
+      // 방금 추가된 5개의 새 데이터를 받아서 바로 editingRows(수정 모드)에 강제 주입!
+      if (addedRows && Array.isArray(addedRows)) {
+        setEditingRows(prev => {
+          const next = new Set(prev);
+          addedRows.forEach((row: any) => next.add(row.id));
+          return next;
+        });
+      }
+
       if (activeTab === 'progress' && currentPage === 1) {
         await fetchData(); 
       } else {
@@ -258,7 +268,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
       </div>
 
       <div className="overflow-x-auto min-h-[400px] relative">
-        {/* ✨ hideSpinner가 켜져 있을 때는 보라색 스피너가 나타나지 않음 */}
         {isLoading && !hideSpinner && (
           <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
             <div className="animate-spin rounded-full h-10 w-10 border-4 border-purple-500 border-t-transparent"></div>
@@ -303,11 +312,9 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
 
                 return (
                   <tr key={row.id} className={`${rowBg} transition-colors`}>
-                    
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="date" value={getStr(row.purchaseDate)} onChange={(e) => handleLocalChange(row.id, 'purchaseDate', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 text-xs">{getStr(row.purchaseDate)}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? (
                         <select value={getStr(row.accountHolder)} onChange={(e) => handleLocalChange(row.id, 'accountHolder', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
@@ -320,31 +327,24 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                         <div className="py-2 px-1 truncate max-w-[90px] mx-auto text-xs">{getStr(row.accountHolder) || '-'}</div>
                       )}
                     </td>
-                    
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.platform)} onChange={(e) => handleLocalChange(row.id, 'platform', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[80px] mx-auto text-xs">{getStr(row.platform) || '-'}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.productName)} onChange={(e) => handleLocalChange(row.id, 'productName', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-xs" /> : <div className="py-2 px-1 truncate max-w-[140px] mx-auto text-xs" title={getStr(row.productName)}>{getStr(row.productName) || '-'}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.chatRoomName)} onChange={(e) => handleLocalChange(row.id, 'chatRoomName', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-xs" /> : <div className="py-2 px-1 truncate max-w-[130px] mx-auto text-xs" title={getStr(row.chatRoomName)}>{getStr(row.chatRoomName) || '-'}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.paybackName)} onChange={(e) => handleLocalChange(row.id, 'paybackName', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[100px] mx-auto text-xs" title={getStr(row.paybackName)}>{getStr(row.paybackName) || '-'}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.contactOnBangpok)} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs" title={getStr(row.contactOnBangpok)}>{getStr(row.contactOnBangpok) || '-'}</div>}
                     </td>
-
                     <td className="p-1 border-r text-right">
                       {isEditing ? <input type="number" value={getNum(row.price)} onChange={(e) => handleLocalChange(row.id, 'price', parseInt(e.target.value) || 0)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-right text-xs" /> : <div className="py-2 px-1 text-xs">{getNum(row.price).toLocaleString()}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? (
                         <select value={getStr(row.reviewType) || '(빈)별점'} onChange={(e) => handleLocalChange(row.id, 'reviewType', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
@@ -352,7 +352,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                         </select>
                       ) : <div className="py-2 px-1 text-xs text-center">{getStr(row.reviewType) || '-'}</div>}
                     </td>
-
                     <td className="p-1 border-r text-center align-middle">
                       <div className="flex flex-col gap-1.5 px-1">
                         {row.reviewType === '(빈)텍스트' ? (
@@ -366,11 +365,9 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                         )}
                       </div>
                     </td>
-
                     <td className={`p-1 border-r text-center transition-colors duration-300 ${writtenBg}`}><input type="checkbox" checked={isWritten} onChange={(e) => handleCheckChange(row.id, 'isReviewWritten', e.target.checked)} className="w-5 h-5 rounded mt-1 accent-blue-600 cursor-pointer" /></td>
                     <td className={`p-1 border-r text-center transition-colors duration-300 ${productBg}`}><input type="checkbox" checked={isProductPayback} onChange={(e) => handleCheckChange(row.id, 'isProductPayback', e.target.checked)} className="w-5 h-5 rounded mt-1 accent-blue-600 cursor-pointer" /></td>
                     <td className={`p-1 border-r text-center transition-colors duration-300 ${reviewBg}`}><input type="checkbox" checked={isReviewPayback} onChange={(e) => handleCheckChange(row.id, 'isReviewPayback', e.target.checked)} className="w-5 h-5 rounded mt-1 accent-blue-600 cursor-pointer" /></td>
-
                     <td className="px-1 py-3 border-r text-center">
                       <div className="flex gap-1 justify-center">
                         {isEditing ? (
