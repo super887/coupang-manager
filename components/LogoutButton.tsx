@@ -5,15 +5,12 @@ import { logout } from '@/app/actions/auth';
 export default function LogoutButton() {
   const handleLogout = async (e: React.MouseEvent) => {
     e.preventDefault();
-    try {
-      // 1. 서버 액션을 호출해서 쿠키를 싹 지웁니다.
-      await logout();
-    } catch (error) {
-      console.error('로그아웃 에러:', error);
-    } finally {
-      // 2. 서버 에러가 나든 말든, 브라우저가 강제로 로그인 페이지로 멱살 잡고 끌고 갑니다! (Crash 원천 차단)
-      window.location.href = '/login';
-    }
+    
+    // 1. 서버에 "쿠키 지워라!" 명령하고 완전히 끝날 때까지 대기
+    await logout();
+    
+    // 2. 쿠키가 완벽히 날아간 걸 확인한 후, 브라우저가 물리적으로 로그인 페이지로 강제 이동!
+    window.location.href = '/login';
   };
 
   return (
