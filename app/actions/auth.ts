@@ -40,12 +40,10 @@ export async function loginAction(prevState: any, formData: FormData) {
   redirect('/');
 }
 
-// app/actions/auth.ts 파일의 맨 아래 로그아웃 함수 부분만 교체
+// app/actions/auth.ts 맨 아래 로그아웃 함수를 이렇게 바꿔주십쇼!
 
 export async function logout() {
-  // .delete() 함수 대신, 유효기간을 과거로 돌려서 쿠키를 완벽하게 폭파시킵니다.
-  cookies().set('session', '', { 
-    expires: new Date(0), // 1970년으로 돌려서 즉시 폐기
-    path: '/',            // 전체 경로에서 삭제
-  }); 
+  // ✨ 핵심: await를 반드시 붙여야 합니다!
+  const cookieStore = await cookies();
+  cookieStore.delete('session'); 
 }
