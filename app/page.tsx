@@ -4,6 +4,7 @@ import { verifySession } from '@/lib/session';
 import { redirect } from 'next/navigation';
 import ApiKeyForm from '@/components/ApiKeyForm';
 import Link from 'next/link'; 
+import { logout } from '@/app/actions/auth'; // ✨ 로그아웃 액션 불러오기!
 
 import PurchaseTable from '@/components/PurchaseTable';
 
@@ -43,9 +44,19 @@ async function DashboardContent() {
               </Link>
             </nav>
           </div>
-          <span className="text-sm font-medium bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
-            {user.name} 님
-          </span>
+          
+          {/* ✨ 로그아웃 버튼이 추가된 우측 영역 */}
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
+              {user.name} 님
+            </span>
+            <form action={logout}>
+              <button type="submit" className="text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                로그아웃
+              </button>
+            </form>
+          </div>
+          
         </div>
       </header>
 

@@ -3,6 +3,7 @@
 import prisma from '@/lib/prisma';
 import { createSession } from '@/lib/session';
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 
 // [확장성 포인트]: 폼 검증 로직을 별도로 분리하여 나중에 Zod 같은 라이브러리를 붙이기 쉽게 구조화
 export async function loginAction(prevState: any, formData: FormData) {
@@ -44,4 +45,14 @@ export async function loginAction(prevState: any, formData: FormData) {
 
   // 성공 시 메인 대시보드로 이동 (try-catch 밖에서 실행해야 Next.js redirect가 정상 작동함)
   redirect('/');
+}
+
+
+
+export async function logout() {
+  // 사용 중인 세션 쿠키를 삭제합니다. (만약 쿠키 이름이 'session'이 아니라면 맞게 변경해주세요!)
+  cookies().delete('session'); 
+  
+  // 삭제 후 로그인 페이지로 즉시 튕겨냅니다.
+  redirect('/login');
 }
