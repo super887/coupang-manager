@@ -119,9 +119,17 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
       const generatedText = await generateAiReview(id, productName);
       setLocalData(prev => prev.map(r => r.id === id ? { ...r, generatedReview: generatedText } : r));
       await updatePurchase(id, { generatedReview: generatedText });
-    } catch (e) { alert('AI 리뷰 생성에 실패했습니다.'); }
+    } catch (e: any) { 
+      const errorMsg = e?.message?.toLowerCase() || String(e).toLowerCase();
+      let reason = '알 수 없는 오류';
+      if (errorMsg.includes('safety') || errorMsg.includes('policy') || errorMsg.includes('violation')) reason = '보안 정책 위반(성인용품 등)';
+      else if (errorMsg.includes('quota') || errorMsg.includes('429')) reason = '요청 한도 초과';
+      
+      alert(`AI 리뷰 생성에 실패했습니다.\n사유: ${reason}`); 
+    }
   };
 
+  // ✨ 에러 원인을 분석해서 친절하게 알려주는 업그레이드된 전체 리뷰 작성
   const handleBulkGenerateAi = async (e: React.MouseEvent) => {
     e.preventDefault();
     const targets = localData.filter(r => r.reviewType === '(빈)텍스트' && !r.generatedReview && (r.productName || '').trim() !== '');
@@ -137,23 +145,52 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setIsBulkGenerating(true);
     cancelBulkRef.current = false;
     
+    // 실패한 상품명과 사유를 함께 저장할 배열
+    const failedProducts: { name: string, reason: string }[] = [];
+
     for (let i = 0; i < uniqueProductNames.length; i++) {
       if (cancelBulkRef.current) break;
       const currentProductName = uniqueProductNames[i];
       setBulkProgress({ current: i + 1, total: uniqueProductNames.length });
+      
       try {
         const matchingRows = targets.filter(t => getStr(t.productName).trim() === currentProductName);
         const sampleId = matchingRows[0].id;
         const generatedText = await generateAiReview(sampleId, currentProductName);
+        
         const otherRows = matchingRows.slice(1);
         for (const row of otherRows) { await updatePurchase(row.id, { ...row, generatedReview: generatedText }); }
         setLocalData(prev => prev.map(r => (r.reviewType === '(빈)텍스트' && !r.generatedReview && getStr(r.productName).trim() === currentProductName) ? { ...r, generatedReview: generatedText } : r));
-      } catch (e) { alert(`'${currentProductName}' 생성 중 에러가 발생했습니다.`); break; }
+      } catch (e: any) { 
+        // 🚨 에러 메시지 분석
+        const errorMsg = e?.message?.toLowerCase() || String(e).toLowerCase();
+        let userFriendlyReason = "알 수 없는 시스템 오류 (잠시 후 다시 시도)";
+
+        if (errorMsg.includes('safety') || errorMsg.includes('policy') || errorMsg.includes('violation')) {
+          userFriendlyReason = "제미나이 보안 정책 위반 (성인용품, 폭력성 단어 등)";
+        } else if (errorMsg.includes('quota') || errorMsg.includes('429') || errorMsg.includes('too many')) {
+          userFriendlyReason = "API 분당 요청 한도 초과 (잠시 후 다시 시도)";
+        } else if (errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('timeout')) {
+          userFriendlyReason = "네트워크 연결 지연 (잠시 후 다시 시도)";
+        }
+
+        // 실패 목록에 상품명과 사유를 함께 저장
+        failedProducts.push({ name: currentProductName, reason: userFriendlyReason });
+      }
+      
       if (i < uniqueProductNames.length - 1 && !cancelBulkRef.current) await new Promise(res => setTimeout(res, 5000));
     }
+    
     setIsBulkGenerating(false);
     setBulkProgress({ current: 0, total: 0 });
-    alert('✅ 요청하신 AI 리뷰 생성이 완료되었습니다!');
+
+    // ✨ 작업 완료 후 상세한 결과 보고
+    if (failedProducts.length > 0) {
+      const failedListStr = failedProducts.map(f => `- ${f.name}\n  (사유: ${f.reason})`).join('\n\n');
+      alert(`✅ 작업이 완료되었으나, 다음 ${failedProducts.length}개 상품은 실패했습니다.\n\n[실패 목록 및 사유]\n${failedListStr}\n\n사유를 확인하신 후 개별 AI 생성 버튼으로 다시 시도하시거나, 보안 위반 상품은 직접 작성해 주세요.`);
+    } else {
+      if (!cancelBulkRef.current) alert('✅ 요청하신 AI 리뷰 생성이 완벽하게 완료되었습니다!');
+    }
   };
 
   const handleSave = async (e: React.MouseEvent, row: any) => {
@@ -163,11 +200,9 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setEditingRows(p => { const n = new Set(p); n.delete(row.id); return n; });
     try {
       const { memo, ...safeData } = row;
-      // ✨ DB(Prisma) 에러 방지: 문자로 된 가격을 저장할 땐 숫자로 완벽하게 변환 (빈 값이면 0으로 저장)
       safeData.price = parseInt(safeData.price) || 0; 
       await updatePurchase(row.id, safeData);
       
-      // 저장 완료 후 화면 상태에도 숫자형태로 다시 세팅
       setLocalData(curr => curr.map(r => r.id === row.id ? { ...r, price: safeData.price } : r));
     } catch (e) { setLocalData(prev); alert('수정 실패'); }
   };
@@ -345,8 +380,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                     <td className="p-1 border-r text-center">
                       {isEditing ? <input type="text" value={getStr(row.contactOnBangpok)} onChange={(e) => handleLocalChange(row.id, 'contactOnBangpok', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs" /> : <div className="py-2 px-1 truncate max-w-[120px] mx-auto text-xs" title={getStr(row.contactOnBangpok)}>{getStr(row.contactOnBangpok) || '-'}</div>}
                     </td>
-                    
-                    {/* ✨ 0일 경우 화면에서 빈 값으로 표시되게 변경! ✨ type="text" 로 일반텍스트 입력처럼! */}
                     <td className="p-1 border-r text-right">
                       {isEditing ? (
                         <input 
@@ -360,7 +393,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
                         <div className="py-2 px-1 text-xs">{row.price ? Number(row.price).toLocaleString() : ''}</div>
                       )}
                     </td>
-
                     <td className="p-1 border-r text-center">
                       {isEditing ? (
                         <select value={getStr(row.reviewType) || '(빈)별점'} onChange={(e) => handleLocalChange(row.id, 'reviewType', e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-center text-xs bg-white">
