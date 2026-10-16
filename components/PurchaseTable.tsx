@@ -300,7 +300,7 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
           <button type="button" onClick={handleBulkGenerateAi} disabled={isLoading || isBulkGenerating || isAdding} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-50">✨ 전체 AI 생성</button>
           <button type="button" onClick={handleBulkDelete} disabled={selectedRows.size === 0} className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">🗑️ 선택 삭제</button>
           <button type="button" onClick={handleAddRow} disabled={isAdding} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 w-[130px]">
-            {isAdding ? '⏳ 추가 중...' : '+ 새 항목 5줄 추가'}
+            {isAdding ? '⏳ 추가 중...' : '새 항목 5줄 추가'}
           </button>
         </div>
       </div>
