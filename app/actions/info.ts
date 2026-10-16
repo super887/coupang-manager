@@ -96,3 +96,27 @@ export async function deleteSeller(id: string) {
   });
   revalidatePath('/accounts');
 }
+
+// app/actions/info.ts 맨 아래에 추가
+
+export async function getDashboardData() {
+  const session = await verifySession();
+  if (!session?.userId) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { geminiApiKey: true, customPrompt: true },
+  });
+
+  const accounts = await prisma.accountInfo.findMany({
+    where: { userId: session.userId },
+    select: { accountHolder: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  return {
+    hasApiKey: !!user?.geminiApiKey,
+    customPrompt: user?.customPrompt || '',
+    accounts: accounts || [],
+  };
+}
