@@ -11,10 +11,18 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); // ✨ 비밀번호 확인용 상태 추가
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ✨ 회원가입 시 비밀번호 일치 여부 검증
+    if (!isLoginMode && password !== confirmPassword) {
+      alert('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -41,7 +49,6 @@ export default function LoginPage() {
     }
   };
 
-  // ✨ 비밀번호 찾기 클릭 시 카카오 비즈니스 채널로 유도
   const handleFindPassword = () => {
     if (confirm('비밀번호 초기화는 카카오톡 고객센터를 통해 진행됩니다.\n1:1 상담 채널로 이동하시겠습니까?')) {
       window.open('http://pf.kakao.com/_pxjsmX/chat', '_blank');
@@ -56,14 +63,22 @@ export default function LoginPage() {
         <div className="flex border-b">
           <button 
             type="button"
-            onClick={() => setIsLoginMode(true)}
+            onClick={() => {
+              setIsLoginMode(true);
+              setPassword('');
+              setConfirmPassword('');
+            }}
             className={`flex-1 py-4 font-bold transition-colors ${isLoginMode ? 'bg-white text-purple-600 border-b-2 border-purple-600' : 'bg-gray-50 text-gray-400'}`}
           >
             로그인
           </button>
           <button 
             type="button"
-            onClick={() => setIsLoginMode(false)}
+            onClick={() => {
+              setIsLoginMode(false);
+              setPassword('');
+              setConfirmPassword('');
+            }}
             className={`flex-1 py-4 font-bold transition-colors ${!isLoginMode ? 'bg-white text-purple-600 border-b-2 border-purple-600' : 'bg-gray-50 text-gray-400'}`}
           >
             회원가입
@@ -123,6 +138,21 @@ export default function LoginPage() {
                 required
               />
             </div>
+
+            {/* ✨ 회원가입 모드일 때만 나타나는 비밀번호 확인 칸 */}
+            {!isLoginMode && (
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">비밀번호 확인</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="비밀번호를 다시 한 번 입력해주세요"
+                  className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors"
+                  required={!isLoginMode}
+                />
+              </div>
+            )}
 
             <button
               type="submit"
