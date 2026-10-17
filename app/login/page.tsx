@@ -1,21 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { login, signup } from '@/app/actions/auth';
 
 export default function LoginPage() {
-  const router = useRouter(); // ✨ 다시 useRouter 사용
   const [isLoginMode, setIsLoginMode] = useState(true);
   
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  
   const [isLoading, setIsLoading] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false); // ✨ 낙관적 UI 전환을 위한 성공 상태 추가!
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 로딩 중이거나 이미 성공했으면 중복 클릭 완벽 차단
+    if (isLoading || isSuccess) return; 
 
     if (!isLoginMode && password !== confirmPassword) {
       alert('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
@@ -28,25 +31,26 @@ export default function LoginPage() {
       if (isLoginMode) {
         const res = await login(phone, password);
         if (res.success) {
-          // ✨ 쿠키를 꽉 물고 대시보드로 이동 + 강력 새로고침!
-          router.push('/');
-          router.refresh();
+          // ✨ 서버에서 성공 응답이 오자마자 낙관적 UI 렌더링!
+          setIsSuccess(true); 
+          // 그 직후 자연스럽게 리다이렉트
+          window.location.href = '/'; 
         } else {
           alert(res.error);
+          setIsLoading(false);
         }
       } else {
         const res = await signup(name, phone, password);
         if (res.success) {
-          alert('회원가입이 완료되었습니다!');
-          router.push('/');
-          router.refresh();
+          setIsSuccess(true);
+          window.location.href = '/';
         } else {
           alert(res.error);
+          setIsLoading(false);
         }
       }
     } catch (error) {
       alert('오류가 발생했습니다. 다시 시도해주세요.');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -57,10 +61,24 @@ export default function LoginPage() {
     }
   };
 
+  // ✨ 낙관적 UI 전환: 로그인이 성공하면 즉시 보여줄 화면 (광클 방지 및 UX 극대화)
+  if (isSuccess) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden p-12 flex flex-col items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-6"></div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">환영합니다!</h2>
+          <p className="text-gray-500 font-medium text-center">대시보드 데이터를 불러오는 중입니다...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
         
+        {/* 상단 탭 전환 */}
         <div className="flex border-b">
           <button 
             type="button"
@@ -69,7 +87,8 @@ export default function LoginPage() {
               setPassword('');
               setConfirmPassword('');
             }}
-            className={`flex-1 py-4 font-bold transition-colors ${isLoginMode ? 'bg-white text-purple-600 border-b-2 border-purple-600' : 'bg-gray-50 text-gray-400'}`}
+            disabled={isLoading}
+            className={`flex-1 py-4 font-bold transition-colors ${isLoginMode ? 'bg-white text-purple-600 border-b-2 border-purple-600' : 'bg-gray-50 text-gray-400'} disabled:opacity-50`}
           >
             로그인
           </button>
@@ -80,7 +99,8 @@ export default function LoginPage() {
               setPassword('');
               setConfirmPassword('');
             }}
-            className={`flex-1 py-4 font-bold transition-colors ${!isLoginMode ? 'bg-white text-purple-600 border-b-2 border-purple-600' : 'bg-gray-50 text-gray-400'}`}
+            disabled={isLoading}
+            className={`flex-1 py-4 font-bold transition-colors ${!isLoginMode ? 'bg-white text-purple-600 border-b-2 border-purple-600' : 'bg-gray-50 text-gray-400'} disabled:opacity-50`}
           >
             회원가입
           </button>
@@ -90,7 +110,7 @@ export default function LoginPage() {
           <div className="text-center mb-8">
             <h1 className="text-2xl font-extrabold text-gray-900 mb-2">리뷰오토 📦</h1>
             <p className="text-gray-500 text-sm">
-              {isLoginMode ? '다시 오신 것을 환영합니다!' : '지금 바로 쿠팡 리뷰 관리를 시작하세요.'}
+              {isLoginMode ? '다시 오신 것을 환영합니다!' : '지금 바로 리뷰 관리를 시작하세요.'}
             </p>
           </div>
 
@@ -103,7 +123,8 @@ export default function LoginPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="홍길동"
-                  className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors"
+                  disabled={isLoading}
+                  className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors disabled:bg-gray-100 disabled:text-gray-400"
                   required={!isLoginMode}
                 />
               </div>
@@ -116,7 +137,8 @@ export default function LoginPage() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="- 없이 숫자만 입력 (예: 01012345678)"
-                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors"
+                disabled={isLoading}
+                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors disabled:bg-gray-100 disabled:text-gray-400"
                 required
               />
             </div>
@@ -135,7 +157,8 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="비밀번호를 입력해주세요"
-                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors"
+                disabled={isLoading}
+                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors disabled:bg-gray-100 disabled:text-gray-400"
                 required
               />
             </div>
@@ -148,7 +171,8 @@ export default function LoginPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="비밀번호를 다시 한 번 입력해주세요"
-                  className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors"
+                  disabled={isLoading}
+                  className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white transition-colors disabled:bg-gray-100 disabled:text-gray-400"
                   required={!isLoginMode}
                 />
               </div>
@@ -157,9 +181,16 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl transition-all shadow-md mt-6 disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl transition-all shadow-md mt-6 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              {isLoading ? '처리 중...' : (isLoginMode ? '로그인' : '회원가입')}
+              {isLoading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  처리 중...
+                </>
+              ) : (
+                isLoginMode ? '로그인' : '회원가입'
+              )}
             </button>
           </form>
         </div>
