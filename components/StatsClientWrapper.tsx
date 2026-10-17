@@ -10,17 +10,14 @@ export default function StatsClientWrapper() {
   const [rawData, setRawData] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   
-  // 현재 날짜 기준으로 기본 월 세팅 (예: "2026-10")
   const today = new Date();
   const [selectedMonth, setSelectedMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
   useEffect(() => {
-    // ✨ 로컬 캐싱: 브라우저에 저장된 통계 데이터로 즉시 화면 렌더링 (0초 컷)
     const cached = localStorage.getItem('optimistic_stats');
     if (cached) setRawData(JSON.parse(cached));
     setIsLoaded(true);
 
-    // ✨ 화면 띄운 후 최신 데이터 동기화
     const fetchLatest = async () => {
       try {
         const data = await getStatsData();
@@ -33,12 +30,10 @@ export default function StatsClientWrapper() {
     fetchLatest();
   }, []);
 
-  // 🚀 선택된 월에 맞춰 데이터 정산 (월 변경 시 프론트엔드에서 즉시 재계산)
   const stats = useMemo(() => {
     if (!selectedMonth) return { totalJobs: 0, totalCost: 0, estimatedProfit: 0, actualProfit: 0, dailyCounts: [], daysInMonth: 30 };
 
     const [year, month] = selectedMonth.split('-');
-    // 해당 월의 마지막 날짜 구하기 (28, 30, 31일)
     const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
     
     let totalJobs = 0;
@@ -46,12 +41,11 @@ export default function StatsClientWrapper() {
     let estimatedProfit = 0;
     let actualProfit = 0;
     
-    // 그래프를 위한 일별 데이터 배열 (1일~말일)
     const dailyCounts = Array.from({ length: daysInMonth }, () => 0);
 
     rawData.forEach(item => {
       const dateStr = getStr(item.purchaseDate);
-      if (!dateStr.startsWith(selectedMonth)) return; // 선택한 월의 데이터만 쏙 필터링
+      if (!dateStr.startsWith(selectedMonth)) return; 
 
       const day = parseInt(dateStr.split('-')[2], 10);
       if (day >= 1 && day <= daysInMonth) {
@@ -61,16 +55,12 @@ export default function StatsClientWrapper() {
       totalJobs += 1;
       totalCost += getNum(item.price);
 
-      // ✨ 형님의 수익 계산 공식 완벽 적용
       let profit = 0;
       const rType = getStr(item.reviewType);
       if (rType === '(빈)별점') profit = 500;
       else if (rType === '(빈)텍스트' || rType === '(빈)원고제공') profit = 1000;
-      // 실배 등 나머지는 0원
 
       estimatedProfit += profit;
-      
-      // 리뷰비 페이백이 체크된 항목만 실제 수익으로 합산
       if (item.isReviewPayback) {
         actualProfit += profit; 
       }
@@ -79,11 +69,53 @@ export default function StatsClientWrapper() {
     return { totalJobs, totalCost, estimatedProfit, actualProfit, dailyCounts, daysInMonth };
   }, [rawData, selectedMonth]);
 
-  // 📈 SVG 선 그래프 포인트 자동 계산
-  const maxCount = Math.max(...stats.dailyCounts, 5); // 데이터가 없어도 그래프 틀 유지 (최소 높이 5)
+  // ✨ 라이브러리 없이 엑셀(CSV)을 즉석에서 찍어내는 완벽한 방탄 함수
+  const handleExportExcel = () => {
+    // 1. 현재 선택된 월의 데이터만 필터링
+    const targetData = rawData.filter(item => getStr(item.purchaseDate).startsWith(selectedMonth));
+    if (targetData.length === 0) return alert('해당 월에 엑셀로 저장할 데이터가 없습니다.');
+
+    // 2. 엑셀 헤더 설정
+    const headers = ['구매일', '계정주', '플랫폼', '상품명', '카톡방명', '페이백명', '기타메모(연락처)', '가격', '리뷰타입', 'AI리뷰내용', '작성완료', '상페완료', '리페완료'];
+    
+    // 3. 데이터를 엑셀 행(Row) 규격에 맞게 변환
+    const rows = targetData.map(row => [
+      getStr(row.purchaseDate),
+      getStr(row.accountHolder),
+      getStr(row.platform),
+      getStr(row.productName),
+      getStr(row.chatRoomName),
+      getStr(row.paybackName),
+      getStr(row.contactOnBangpok),
+      getNum(row.price),
+      getStr(row.reviewType),
+      getStr(row.generatedReview),
+      row.isReviewWritten ? 'O' : 'X',
+      row.isProductPayback ? 'O' : 'X',
+      row.isReviewPayback ? 'O' : 'X',
+    ]);
+
+    // 4. 쉼표나 따옴표가 내용에 들어가도 표가 깨지지 않게 이스케이프 처리
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    // 5. 한글 깨짐 방지(BOM 문자 '\uFEFF' 추가) 후 다운로드 트리거
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `구매내역_정산_${selectedMonth}.csv`); // 파일명 예시: 구매내역_정산_2026-10.csv
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const maxCount = Math.max(...stats.dailyCounts, 5); 
   const graphPoints = stats.dailyCounts.map((count, index) => {
     const x = (index / (stats.daysInMonth - 1)) * 1000;
-    const y = 250 - (count / maxCount) * 200; // y축 여백(padding) 고려
+    const y = 250 - (count / maxCount) * 200; 
     return `${x},${y}`;
   }).join(' ');
 
@@ -92,38 +124,41 @@ export default function StatsClientWrapper() {
   return (
     <div className="animate-in fade-in duration-300 w-full max-w-5xl mx-auto space-y-6">
       
-      {/* 🗓️ 월 선택 컨트롤러 */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
+      {/* 🗓️ 월 선택 및 엑셀 다운로드 컨트롤러 */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center flex-wrap gap-4">
         <h2 className="text-xl font-bold text-gray-800">📊 월간 통계 및 정산</h2>
-        <input 
-          type="month" 
-          value={selectedMonth} 
-          onChange={(e) => setSelectedMonth(e.target.value)}
-          className="p-2 px-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-bold text-gray-700 cursor-pointer bg-gray-50 hover:bg-white transition-colors"
-        />
+        
+        <div className="flex gap-3">
+          <input 
+            type="month" 
+            value={selectedMonth} 
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="p-2 px-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-bold text-gray-700 cursor-pointer bg-gray-50 hover:bg-white transition-colors"
+          />
+          {/* ✨ 엑셀 다운로드 버튼 추가 */}
+          <button 
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-lg transition-colors shadow-sm"
+          >
+            📥 엑셀로 저장
+          </button>
+        </div>
       </div>
 
-      {/* 📈 자체 제작 무설치 SVG 반응형 선 그래프 */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <h3 className="text-gray-600 font-bold mb-6">{selectedMonth.replace('-', '년 ')}월 일별 작업 현황</h3>
         <div className="relative w-full h-[280px]">
           <svg viewBox="0 0 1000 280" className="w-full h-full overflow-visible" preserveAspectRatio="none">
-            {/* 배경 가이드 라인 5줄 */}
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
               <line key={ratio} x1="0" y1={250 - (200 * ratio)} x2="1000" y2={250 - (200 * ratio)} stroke="#f3f4f6" strokeWidth="2" />
             ))}
-            
-            {/* 데이터 연결선 (Line) */}
             <polyline fill="none" stroke="#9333ea" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={graphPoints} />
-            
-            {/* 데이터 포인트 (Dots) 및 호버 시 나오는 툴팁 */}
             {stats.dailyCounts.map((count, index) => {
               const x = (index / (stats.daysInMonth - 1)) * 1000;
               const y = 250 - (count / maxCount) * 200;
               return (
                 <g key={index} className="group cursor-crosshair">
                   <circle cx={x} cy={y} r="6" fill="#fff" stroke="#9333ea" strokeWidth="3" className="transition-all group-hover:r-8 group-hover:fill-purple-100" />
-                  {/* 마우스 오버 툴팁 */}
                   <text x={x} y={y - 15} textAnchor="middle" fontSize="14" fontWeight="bold" fill="#4b5563" className="opacity-0 group-hover:opacity-100 transition-opacity">
                     {count}건
                   </text>
@@ -132,7 +167,6 @@ export default function StatsClientWrapper() {
             })}
           </svg>
 
-          {/* X축 날짜 텍스트 (모바일에서는 너무 촘촘해지지 않게 5일 간격으로 자동 조절) */}
           <div className="absolute left-0 right-0 -bottom-2 flex justify-between px-1">
             {stats.dailyCounts.map((_, i) => (
               <span key={i} className={`text-xs text-gray-400 font-medium w-4 text-center ${(i + 1) % 5 !== 0 && i !== 0 && i !== stats.daysInMonth - 1 ? 'hidden md:block' : ''}`}>
@@ -143,37 +177,29 @@ export default function StatsClientWrapper() {
         </div>
       </div>
 
-      {/* 💰 월간 요약 정산 보드 (4구역) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        
-        {/* 구역 1: 총 진행 건수 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center transition-transform hover:-translate-y-1">
           <span className="text-gray-500 text-sm font-bold mb-2">총 진행 건수</span>
           <div className="text-3xl font-extrabold text-gray-800">{stats.totalJobs.toLocaleString()}<span className="text-lg font-medium text-gray-500 ml-1">건</span></div>
         </div>
         
-        {/* 구역 2: 총 구매 비용 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center transition-transform hover:-translate-y-1">
           <span className="text-gray-500 text-sm font-bold mb-2">총 구매 비용</span>
           <div className="text-3xl font-extrabold text-red-500">{stats.totalCost.toLocaleString()}<span className="text-lg font-medium text-red-400 ml-1">원</span></div>
         </div>
 
-        {/* 구역 3: 예상 순수익 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-purple-200 flex flex-col justify-center relative overflow-hidden transition-transform hover:-translate-y-1">
           <div className="absolute right-[-10px] top-[-10px] opacity-10 text-6xl">🔮</div>
           <span className="text-purple-600 text-sm font-bold mb-2">예상 순수익</span>
           <div className="text-3xl font-extrabold text-purple-700">{stats.estimatedProfit.toLocaleString()}<span className="text-lg font-medium text-purple-500 ml-1">원</span></div>
         </div>
 
-        {/* 구역 4: 실제 수익 (페이백 체크) */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-green-200 flex flex-col justify-center relative overflow-hidden transition-transform hover:-translate-y-1">
            <div className="absolute right-[-10px] top-[-10px] opacity-10 text-6xl">💸</div>
           <span className="text-green-600 text-sm font-bold mb-2">실제 수익 (페이백 완료)</span>
           <div className="text-3xl font-extrabold text-green-700">{stats.actualProfit.toLocaleString()}<span className="text-lg font-medium text-green-500 ml-1">원</span></div>
         </div>
-
       </div>
-
     </div>
   );
 }
