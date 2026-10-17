@@ -115,27 +115,32 @@ export default function ApiKeyForm({
           <form onSubmit={handleSave} className="space-y-4">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">
-                API 키 입력 {hasKey && <span className="text-green-500 text-xs ml-2">(✅ 현재 저장된 키가 있습니다)</span>}
+                API키 입력 
+                {/* ✨ 키 유무에 따라 조건부로 렌더링되는 경고/성공 문구 */}
+                {hasKey ? (
+                  <span className="text-green-500 text-xs ml-2">(✅ 현재 저장된 키가 있습니다)</span>
+                ) : (
+                  <span className="text-red-500 text-xs md:text-sm ml-2 font-extrabold animate-pulse">(⚠️ api키가 입력되어 있지 않습니다. api키를 입력해주세요!)</span>
+                )}
               </label>
               <input
                 type="text" 
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Ctrl + V 를 입력하여 키를 입력해주세요"
+                placeholder="[ ctrl + v 를 입력하여 키를 입력해주세요 ]"
                 className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow"
               />
             </div>
 
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">
-                {/* ✨ (선택)에서 (수정가능)으로 변경 완료! */}
                 AI 리뷰 맞춤 프롬프트 (수정가능) 
               </label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="프롬프트를 자유롭게 수정해보세요."
-                rows={11} // ✨ 디폴트 문구가 길어서 한눈에 편하게 보시라고 창 크기를 키웠습니다!
+                rows={11} 
                 className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow resize-none leading-relaxed"
               />
             </div>
