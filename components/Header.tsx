@@ -3,7 +3,6 @@ import { verifySession } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import LogoutButton from '@/components/LogoutButton';
 
-// ✨ active 타입에 'stats' 추가
 export default async function Header({ active = 'dashboard' }: { active?: 'dashboard' | 'accounts' | 'stats' }) {
   const session = await verifySession();
   if (!session?.userId) return null;
@@ -19,7 +18,8 @@ export default async function Header({ active = 'dashboard' }: { active?: 'dashb
     <header className="bg-white border-b border-gray-200">
       <div className="w-[95%] max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <h1 className="font-bold text-xl tracking-tight text-gray-900">쿠팡 리뷰 매니저</h1>
+          {/* ✨ 타이틀을 형님이 정해주신 '리뷰오토'로 변경! */}
+          <h1 className="font-bold text-xl tracking-tight text-gray-900">리뷰오토</h1>
           <nav className="flex gap-6">
             <Link href="/" className={`pb-1 transition-colors ${active === 'dashboard' ? 'text-gray-900 font-semibold border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-900 font-medium'}`}>
               대시보드
@@ -27,7 +27,6 @@ export default async function Header({ active = 'dashboard' }: { active?: 'dashb
             <Link href="/accounts" className={`pb-1 transition-colors ${active === 'accounts' ? 'text-gray-900 font-semibold border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-900 font-medium'}`}>
               계정정보관리
             </Link>
-            {/* ✨ 통계 탭 추가! */}
             <Link href="/stats" className={`pb-1 transition-colors ${active === 'stats' ? 'text-gray-900 font-semibold border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-900 font-medium'}`}>
               통계 및 정산
             </Link>
