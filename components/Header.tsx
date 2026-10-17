@@ -35,10 +35,10 @@ export default async function Header({ active = 'dashboard' }: { active?: 'dashb
           </nav>
         </div>
 
-        {/* ➡️ 오른쪽 영역: 소통 문의 링크 + 유저 정보 + 로그아웃 */}
+        {/* ➡️ 오른쪽 영역: 소통·문의 링크 + 유저 정보 + 로그아웃 */}
         <div className="flex items-center gap-6">
           
-          {/* ✨ 카카오톡 소통 문의 링크를 오른쪽으로 이동! */}
+          {/* ✨ 소통 문의 -> 소통·문의 로 변경! */}
           <a 
             href="https://open.kakao.com/o/gVXU8SSi" 
             target="_blank" 
@@ -50,7 +50,7 @@ export default async function Header({ active = 'dashboard' }: { active?: 'dashb
               alt="카카오톡" 
               className="w-5 h-5 object-contain"
             />
-            소통 문의
+            소통·문의
           </a>
 
           {/* 깔끔한 세로 구분선 */}
