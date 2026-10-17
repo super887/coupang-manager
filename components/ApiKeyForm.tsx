@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { updateApiSettings } from '@/app/actions/info'; // ✨ 방금 만든 서버 액션 불러오기
+import { updateApiSettings } from '@/app/actions/info';
 
 export default function ApiKeyForm({ 
   initialHasKey, 
@@ -15,7 +15,6 @@ export default function ApiKeyForm({
   const [hasKey, setHasKey] = useState(initialHasKey);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ✨ 1. 로컬 캐싱 (SWR 패턴): 접속 즉시 0초 만에 캐시 데이터로 화면 렌더링
   useEffect(() => {
     const cached = localStorage.getItem('optimistic_api_settings');
     if (cached) {
@@ -27,16 +26,13 @@ export default function ApiKeyForm({
     }
   }, [initialHasKey, initialPrompt]);
 
-  // ✨ 2. 낙관적 업데이트 적용: 버튼 누르는 즉시 성공한 것처럼 화면부터 싹 바꾸고, 뒤에서 서버 통신
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
 
-    // 에러 대비용 이전 상태 저장 (롤백 목적)
     const prevPrompt = prompt;
     const prevHasKey = hasKey;
 
-    // 즉시 성공한 것으로 간주하고 화면과 로컬 캐시 덮어쓰기 (0초 컷)
     const newHasKey = apiKey.trim() !== '' ? true : prevHasKey;
     setHasKey(newHasKey);
     localStorage.setItem('optimistic_api_settings', JSON.stringify({
@@ -45,14 +41,10 @@ export default function ApiKeyForm({
     }));
 
     try {
-      // 뒤에서 조용히 실제 서버에 저장
       await updateApiSettings(apiKey, prompt);
-      
-      // 보안을 위해 텍스트 창에 입력한 실제 키 값은 즉시 날려버림
       setApiKey(''); 
       alert('설정이 성공적으로 저장되었습니다!');
     } catch (error) {
-      // 서버 통신 실패 시 원래 상태로 조용히 롤백
       setPrompt(prevPrompt);
       setHasKey(prevHasKey);
       localStorage.setItem('optimistic_api_settings', JSON.stringify({
@@ -67,12 +59,23 @@ export default function ApiKeyForm({
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mb-6">
-      <div className="flex flex-col md:flex-row gap-8 items-start">
+      <div className="flex flex-col xl:flex-row gap-8 items-start">
         
         {/* 💡 초보자를 위한 친절한 이미지 가이드 및 발급 버튼 영역 */}
-        <div className="w-full md:w-1/2 space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-bold text-gray-800">🔑 Gemini API 키 설정</h3>
+        <div className="w-full xl:w-1/2 space-y-4">
+          
+          {/* ✨ 타이틀 및 완전무료 강조 배지 + 버튼 */}
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="text-lg font-bold text-gray-800">🔑 Gemini API 키 설정</h3>
+              
+              {/* 💸 돈 굳는 완전무료 강조 배지 (통통 튀는 애니메이션 적용) */}
+              <span className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-[13px] font-extrabold shadow-sm flex items-center gap-1.5">
+                <span className="animate-bounce inline-block">💸</span> 
+                AI사용 완전무료! (리뷰작성 500건)
+              </span>
+            </div>
+            
             <a 
               href="https://aistudio.google.com/api-keys" 
               target="_blank" 
@@ -83,11 +86,10 @@ export default function ApiKeyForm({
             </a>
           </div>
           
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mt-2">
             <p className="text-sm text-gray-600 font-medium mb-3">
               위 버튼을 눌러 Google AI Studio에 접속한 후, 아래 이미지처럼 <span className="text-red-500 font-bold">복사 버튼</span>을 클릭하세요.
             </p>
-            {/* ✨ 파일명 key.png 로 완벽 적용 */}
             <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
               <img src="/key.png" alt="API 키 복사 가이드" className="w-full h-auto object-contain" />
             </div>
@@ -95,7 +97,7 @@ export default function ApiKeyForm({
         </div>
 
         {/* 📝 입력 폼 영역 */}
-        <div className="w-full md:w-1/2 space-y-4 md:mt-11">
+        <div className="w-full xl:w-1/2 space-y-4 xl:mt-14">
           <form onSubmit={handleSave} className="space-y-4">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">
