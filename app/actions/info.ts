@@ -120,3 +120,23 @@ export async function getDashboardData() {
     accounts: accounts || [],
   };
 }
+
+// app/actions/info.ts 맨 아래 추가
+
+export async function updateApiSettings(apiKey: string, customPrompt: string) {
+  const session = await verifySession();
+  if (!session?.userId) throw new Error('권한이 없습니다.');
+
+  // 전달받은 키가 빈 값이 아니면 업데이트, 빈 값이면 기존 키 유지
+  const dataToUpdate: any = { customPrompt };
+  if (apiKey.trim() !== '') {
+    dataToUpdate.geminiApiKey = apiKey.trim();
+  }
+
+  await prisma.user.update({
+    where: { id: session.userId },
+    data: dataToUpdate,
+  });
+
+  return true;
+}
