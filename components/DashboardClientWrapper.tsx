@@ -40,8 +40,10 @@ export default function DashboardClientWrapper() {
   return (
     <div className={!isLoaded ? 'opacity-0' : 'opacity-100 transition-opacity duration-300'}>
       
-      {/* ✨ 플랫폼 바로가기 영역 (변하지 않으므로 즉시 렌더링) */}
-      <div className="mb-6 flex gap-4">
+      {/* ✨ 플랫폼 바로가기 영역 (flex-wrap을 추가해 화면이 작아져도 버튼이 안 깨지게 보호!) */}
+      <div className="mb-6 flex flex-wrap gap-4">
+        
+        {/* 쿠팡 */}
         <a
           href="https://www.coupang.com/" 
           target="_blank"
@@ -58,6 +60,7 @@ export default function DashboardClientWrapper() {
           <span className="font-bold text-gray-700 group-hover:text-blue-600 transition-colors">쿠팡 바로가기</span>
         </a>
         
+        {/* 네이버 */}
         <a
           href="https://www.naver.com/" 
           target="_blank"
@@ -68,15 +71,49 @@ export default function DashboardClientWrapper() {
             <img 
               src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcBAMAAACAI8KnAAAAMFBMVEUeyAAAxQAAxADs+ev////6//m467Pi9uHD7r6x6KuC3XgmygrU89CQ4Iin5qHJ8cMfkHdFAAAAYUlEQVR4AWOgKRBSUgIRihAeo4mLKwNjiouzAIRb4uLSxDjFxR3B9RJE4bpsROUeQuX6PkHhunxB4voD+UhcvysoXE8dVK40KldwCQpXQALBNXFxE2AIgXoB6jclIEFLAAD2tiUhfIzieAAAAABJRU5ErkJggg==" 
               alt="Naver" 
-              className="w-full h-full object-cover" 
+              className="w-full h-full object-cover p-1" 
             />
           </div>
           <span className="font-bold text-gray-700 group-hover:text-green-600 transition-colors">네이버 바로가기</span>
         </a>
+
+        {/* ✨ 지마켓 추가 */}
+        <a
+          href="https://www.gmarket.co.kr/" 
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 px-5 py-3 bg-white rounded-xl shadow-sm border border-gray-200 hover:border-green-500 hover:shadow-md transition-all group"
+        >
+          <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center bg-white border border-gray-100 group-hover:scale-110 transition-transform">
+            <img 
+              src="https://blog.kakaocdn.net/dna/UIGeR/btsrsRIruv5/AAAAAAAAAAAAAAAAAAAAADL-V5RuANqZCBbmB1nfPUBHhPnlaiQkiZjOsh2H8qCv/img.png?credential=yqXZFxpELC7KVnFOS48ylbz2pIh7yKj8&expires=1793458799&allow_ip=&allow_referer=&signature=5xg4LbafYGjRmlGtNYT2HKyoz6I%3D" 
+              alt="Gmarket" 
+              className="w-full h-full object-cover" 
+            />
+          </div>
+          <span className="font-bold text-gray-700 group-hover:text-green-600 transition-colors">지마켓 바로가기</span>
+        </a>
+
+        {/* ✨ 11번가 추가 */}
+        <a
+          href="https://www.11st.co.kr/" 
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 px-5 py-3 bg-white rounded-xl shadow-sm border border-gray-200 hover:border-red-500 hover:shadow-md transition-all group"
+        >
+          <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center bg-white border border-gray-100 group-hover:scale-110 transition-transform">
+            <img 
+              src="https://i.namu.wiki/i/Hoj-MVl7c1jGLFuXwYHtyTZ0GgGEvsOxKeJ2wNlqF6bEo9pvzGIgb0YN6bnNfoO-IufDLE0M2j0vRk8BJo042Ipo-hCiBsZ1ojt6AOJgmJ9-dFm-mVcySPxLowRzVHVyuZ-eJYkUnoloRdl6wIYsgg.svg" 
+              alt="11st" 
+              className="w-full h-full object-cover p-1" 
+            />
+          </div>
+          <span className="font-bold text-gray-700 group-hover:text-red-600 transition-colors">11번가 바로가기</span>
+        </a>
+
       </div>
 
       {/* API 키 폼 영역 */}
-      {/* ⚠️ Key prop을 사용하여 데이터가 동기화되면 즉시 폼 내용이 업데이트되도록 처리 */}
       <ApiKeyForm 
         key={`api-form-${data.hasApiKey}`} 
         initialHasKey={data.hasApiKey} 
