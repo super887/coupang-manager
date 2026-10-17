@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-// import { useRouter } from 'next/navigation'; // 이제 안 씁니다!
+import { useRouter } from 'next/navigation';
 import { login, signup } from '@/app/actions/auth';
 
 export default function LoginPage() {
+  const router = useRouter(); // ✨ 다시 useRouter 사용
   const [isLoginMode, setIsLoginMode] = useState(true);
   
   const [name, setName] = useState('');
@@ -27,8 +28,9 @@ export default function LoginPage() {
       if (isLoginMode) {
         const res = await login(phone, password);
         if (res.success) {
-          // ✨ 수정됨: 완벽한 쿠키 인식을 위해 하드 리다이렉트 사용!
-          window.location.href = '/'; 
+          // ✨ 쿠키를 꽉 물고 대시보드로 이동 + 강력 새로고침!
+          router.push('/');
+          router.refresh();
         } else {
           alert(res.error);
         }
@@ -36,8 +38,8 @@ export default function LoginPage() {
         const res = await signup(name, phone, password);
         if (res.success) {
           alert('회원가입이 완료되었습니다!');
-          // ✨ 수정됨: 완벽한 쿠키 인식을 위해 하드 리다이렉트 사용!
-          window.location.href = '/';
+          router.push('/');
+          router.refresh();
         } else {
           alert(res.error);
         }
@@ -59,7 +61,6 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
         
-        {/* 상단 탭 전환 */}
         <div className="flex border-b">
           <button 
             type="button"
