@@ -3,6 +3,20 @@
 import { useState, useEffect } from 'react';
 import { updateApiSettings } from '@/app/actions/info';
 
+// ✨ 형님이 작성하신 완벽한 디폴트 프롬프트!
+const DEFAULT_PROMPT = `해당 상품명에 대해 리뷰작성해주는데
+들어가야 하는 요소는 구매이유, 실제 사용해보니 좋은점
+글자수는 200자 내외로
+일반인이 실제 구매한 말투로 자연스럽게 그리고 줄바꿈은하지말고
+
+그리고 해당 제품에대해 리뷰를 3개를 써주면되는데 3개가 다 다른스타일이어야해 다 다른사람이 쓴것처럼해줘
+
+첫번째리뷰 : 위에 기본 프롬프트는 유지하면서 ㅋㅋ, ㅎㅎ, ^^,~ 이런 이모티콘 적절히 섞어서
+
+두번째리뷰 : 위에 기본 프롬프트는 유지하면서 깔끔하고 단백한 말투로
+
+쎄번째리뷰 : 위에 기본 프롬프트는 유지하면서 가족들위해 구매했다는 식으로 써줘`;
+
 export default function ApiKeyForm({ 
   initialHasKey, 
   initialPrompt 
@@ -11,7 +25,8 @@ export default function ApiKeyForm({
   initialPrompt: string | null; 
 }) {
   const [apiKey, setApiKey] = useState('');
-  const [prompt, setPrompt] = useState('');
+  // 초기값이 비어있으면 형님의 마스터 프롬프트를 기본으로 세팅합니다.
+  const [prompt, setPrompt] = useState(initialPrompt || DEFAULT_PROMPT);
   const [hasKey, setHasKey] = useState(initialHasKey);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -19,10 +34,11 @@ export default function ApiKeyForm({
     const cached = localStorage.getItem('optimistic_api_settings');
     if (cached) {
       const parsed = JSON.parse(cached);
-      setPrompt(parsed.customPrompt || '');
+      // 캐시나 서버에 저장된 프롬프트가 없으면 마스터 프롬프트로 채워줍니다.
+      setPrompt(parsed.customPrompt || initialPrompt || DEFAULT_PROMPT);
       setHasKey(parsed.hasApiKey ?? initialHasKey);
     } else {
-      setPrompt(initialPrompt || '');
+      setPrompt(initialPrompt || DEFAULT_PROMPT);
     }
   }, [initialHasKey, initialPrompt]);
 
@@ -64,12 +80,10 @@ export default function ApiKeyForm({
         {/* 💡 초보자를 위한 친절한 이미지 가이드 및 발급 버튼 영역 */}
         <div className="w-full xl:w-1/2 space-y-4">
           
-          {/* ✨ 타이틀 및 완전무료 강조 배지 + 버튼 */}
           <div className="flex flex-wrap justify-between items-center gap-3">
             <div className="flex items-center gap-3 flex-wrap">
               <h3 className="text-lg font-bold text-gray-800">🔑 Gemini API 키 설정</h3>
               
-              {/* 💸 돈 굳는 완전무료 강조 배지 (통통 튀는 애니메이션 적용) */}
               <span className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-[13px] font-extrabold shadow-sm flex items-center gap-1.5">
                 <span className="animate-bounce inline-block">💸</span> 
                 AI사용 완전무료! (리뷰작성 500건)
@@ -114,14 +128,15 @@ export default function ApiKeyForm({
 
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">
-                AI 리뷰 맞춤 프롬프트 (선택)
+                {/* ✨ (선택)에서 (수정가능)으로 변경 완료! */}
+                AI 리뷰 맞춤 프롬프트 (수정가능) 
               </label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="예: 항상 밝고 긍정적인 톤으로, 20대 여성이 작성한 것처럼 리뷰를 써줘."
-                rows={3}
-                className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow resize-none"
+                placeholder="프롬프트를 자유롭게 수정해보세요."
+                rows={11} // ✨ 디폴트 문구가 길어서 한눈에 편하게 보시라고 창 크기를 키웠습니다!
+                className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow resize-none leading-relaxed"
               />
             </div>
 
