@@ -18,8 +18,10 @@ export default async function Header({ active = 'dashboard' }: { active?: 'dashb
     <header className="bg-white border-b border-gray-200">
       <div className="w-[95%] max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          {/* ✨ 타이틀을 형님이 정해주신 '리뷰오토'로 변경! */}
-          <h1 className="font-bold text-xl tracking-tight text-gray-900">리뷰오토</h1>
+          
+          {/* ✨ 리뷰오토 이름 뒤에 찰떡같은 빈 박스 이모지 추가! */}
+          <h1 className="font-bold text-xl tracking-tight text-gray-900">리뷰오토 📦</h1>
+          
           <nav className="flex gap-6">
             <Link href="/" className={`pb-1 transition-colors ${active === 'dashboard' ? 'text-gray-900 font-semibold border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-900 font-medium'}`}>
               대시보드
