@@ -12,9 +12,8 @@ model User {
   name         String
   phone        String       @unique
   password     String?      // ✨ 해킹 방지용 비밀번호 저장 필드 추가!
-  geminiApiKey String?
-  customPrompt String       @default("이 제품을 직접 사용해본 것처럼 자연스럽고 긍정적인 리뷰를 300자 내외로 작성해 주세요.")
-  createdAt    DateTime     @default(now())
+  geminiApiKey String?  
+  customPrompt String       @default("해당 상품명에 대해 리뷰작성해주는데\n들어가야 하는 요소는 구매이유, 실제 사용해보니 좋은점\n글자수는 200자 내외로\n일반인이 실제 구매한 말투로 자연스럽게 그리고 줄바꿈은하지말고\n\n그리고 해당 제품에대해 리뷰를 3개를 써주면되는데 3개가 다 다른스타일이어야해 다 다른사람이 쓴것처럼해줘\n\n첫번째리뷰 : 위에 기본 프롬프트는 유지하면서 ㅋㅋ, ㅎㅎ, ^^,~ 이런 이모티콘 적절히 섞어서\n\n두번째리뷰 : 위에 기본 프롬프트는 유지하면서 깔끔하고 단백한 말투로\n\n세번째리뷰 : 위에 기본 프롬프트는 유지하면서 가족들위해 구매했다는 식으로 써줘")  createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   purchases    Purchase[]
   

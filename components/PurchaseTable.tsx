@@ -8,7 +8,8 @@ import { generateAiReview } from '@/app/actions/ai';
 const getStr = (val: any) => (val === null || val === undefined) ? '' : String(val);
 const getNum = (val: any) => (val === null || val === undefined || isNaN(Number(val))) ? 0 : Number(val);
 
-export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
+// ✨ hasApiKey 프롭스 추가
+export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: any[], hasApiKey?: boolean }) {
   const safeAccounts = Array.isArray(accounts) ? accounts : [];
 
   const [activeTab, setActiveTab] = useState<'progress' | 'completed'>('progress');
@@ -115,6 +116,13 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
 
   const handleGenerateAi = async (e: React.MouseEvent, id: string, productName: string) => {
     e.preventDefault();
+    
+    // ✨ 개별 생성 API 키 차단 방어막
+    if (!hasApiKey) {
+      alert("api키가 입력 되지않았습니다. gemini api 키 설정 화면을 참고해 api 키를 입력해주세요");
+      return;
+    }
+
     try {
       const generatedText = await generateAiReview(id, productName);
       setLocalData(prev => prev.map(r => r.id === id ? { ...r, generatedReview: generatedText } : r));
@@ -129,9 +137,16 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     }
   };
 
-  // ✨ 에러 원인을 분석해서 친절하게 알려주는 업그레이드된 전체 리뷰 작성
+  // ✨ 전체 리뷰 작성
   const handleBulkGenerateAi = async (e: React.MouseEvent) => {
     e.preventDefault();
+    
+    // ✨ 전체 생성 API 키 차단 방어막
+    if (!hasApiKey) {
+      alert("api키가 입력 되지않았습니다. gemini api 키 설정 화면을 참고해 api 키를 입력해주세요");
+      return;
+    }
+
     const targets = localData.filter(r => r.reviewType === '(빈)텍스트' && !r.generatedReview && (r.productName || '').trim() !== '');
     if (targets.length === 0) return alert('현재 화면에 생성할 대상이 없습니다.');
     
@@ -145,7 +160,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setIsBulkGenerating(true);
     cancelBulkRef.current = false;
     
-    // 실패한 상품명과 사유를 함께 저장할 배열
     const failedProducts: { name: string, reason: string }[] = [];
 
     for (let i = 0; i < uniqueProductNames.length; i++) {
@@ -162,7 +176,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
         for (const row of otherRows) { await updatePurchase(row.id, { ...row, generatedReview: generatedText }); }
         setLocalData(prev => prev.map(r => (r.reviewType === '(빈)텍스트' && !r.generatedReview && getStr(r.productName).trim() === currentProductName) ? { ...r, generatedReview: generatedText } : r));
       } catch (e: any) { 
-        // 🚨 에러 메시지 분석
         const errorMsg = e?.message?.toLowerCase() || String(e).toLowerCase();
         let userFriendlyReason = "알 수 없는 시스템 오류 (잠시 후 다시 시도)";
 
@@ -174,7 +187,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
           userFriendlyReason = "네트워크 연결 지연 (잠시 후 다시 시도)";
         }
 
-        // 실패 목록에 상품명과 사유를 함께 저장
         failedProducts.push({ name: currentProductName, reason: userFriendlyReason });
       }
       
@@ -184,7 +196,6 @@ export default function PurchaseTable({ accounts = [] }: { accounts: any[] }) {
     setIsBulkGenerating(false);
     setBulkProgress({ current: 0, total: 0 });
 
-    // ✨ 작업 완료 후 상세한 결과 보고
     if (failedProducts.length > 0) {
       const failedListStr = failedProducts.map(f => `- ${f.name}\n  (사유: ${f.reason})`).join('\n\n');
       alert(`✅ 작업이 완료되었으나, 다음 ${failedProducts.length}개 상품은 실패했습니다.\n\n[실패 목록 및 사유]\n${failedListStr}\n\n사유를 확인하신 후 개별 AI 생성 버튼으로 다시 시도하시거나, 보안 위반 상품은 직접 작성해 주세요.`);

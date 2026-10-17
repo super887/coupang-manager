@@ -122,7 +122,7 @@ export default function DashboardClientWrapper() {
 
       {/* 시트(테이블) 영역 */}
       <div className="mt-6">
-        <PurchaseTable accounts={data.accounts} />
+        <PurchaseTable accounts={data.accounts} hasApiKey={data.hasApiKey} />
       </div>
 
     </div>
