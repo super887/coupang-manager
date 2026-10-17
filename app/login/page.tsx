@@ -1,23 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+// import { useRouter } from 'next/navigation'; // 이제 안 씁니다!
 import { login, signup } from '@/app/actions/auth';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [isLoginMode, setIsLoginMode] = useState(true);
   
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState(''); // ✨ 비밀번호 확인용 상태 추가
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ✨ 회원가입 시 비밀번호 일치 여부 검증
     if (!isLoginMode && password !== confirmPassword) {
       alert('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
       return;
@@ -29,7 +27,8 @@ export default function LoginPage() {
       if (isLoginMode) {
         const res = await login(phone, password);
         if (res.success) {
-          router.push('/');
+          // ✨ 수정됨: 완벽한 쿠키 인식을 위해 하드 리다이렉트 사용!
+          window.location.href = '/'; 
         } else {
           alert(res.error);
         }
@@ -37,7 +36,8 @@ export default function LoginPage() {
         const res = await signup(name, phone, password);
         if (res.success) {
           alert('회원가입이 완료되었습니다!');
-          router.push('/');
+          // ✨ 수정됨: 완벽한 쿠키 인식을 위해 하드 리다이렉트 사용!
+          window.location.href = '/';
         } else {
           alert(res.error);
         }
@@ -139,7 +139,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* ✨ 회원가입 모드일 때만 나타나는 비밀번호 확인 칸 */}
             {!isLoginMode && (
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">비밀번호 확인</label>
@@ -162,7 +161,6 @@ export default function LoginPage() {
               {isLoading ? '처리 중...' : (isLoginMode ? '로그인' : '회원가입')}
             </button>
           </form>
-
         </div>
       </div>
     </div>
