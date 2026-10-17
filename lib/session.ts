@@ -1,44 +1,28 @@
-import 'server-only';
-import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
-
-const secretKey = process.env.SESSION_SECRET || 'default-secret-key-at-least-32-characters-long';
-const encodedKey = new TextEncoder().encode(secretKey);
-
-export async function createSession(userId: string) {
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7일간 유지
-  const session = await new SignJWT({ userId })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('7d')
-    .sign(encodedKey);
-
-  const cookieStore = await cookies();
-  cookieStore.set('session', session, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    expires: expiresAt,
-    path: '/',
-    sameSite: 'lax',
-  });
-}
+import prisma from '@/lib/prisma';
 
 export async function verifySession() {
   const cookieStore = await cookies();
-  const session = cookieStore.get('session')?.value;
-  if (!session) return null;
+  const userId = cookieStore.get('userId')?.value;
+
+  if (!userId) return null;
 
   try {
-    const { payload } = await jwtVerify(session, encodedKey, {
-      algorithms: ['HS256'],
+    // DB에 이 유저가 진짜로 살아있는지 검증
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId },
+      select: { id: true } 
     });
-    return payload;
+
+    // 만약 DB에 없는 썩은(?) 쿠키라면 강제 삭제해서 무한 루프 방지!
+    if (!user) {
+      cookieStore.delete('userId');
+      return null;
+    }
+
+    return { userId };
   } catch (error) {
+    console.error('세션 검증 중 에러:', error);
     return null;
   }
-}
-
-export async function deleteSession() {
-  const cookieStore = await cookies();
-  cookieStore.delete('session');
 }
