@@ -1,49 +1,53 @@
 'use server';
 
 import prisma from '@/lib/prisma';
-import { createSession } from '@/lib/session';
-import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
+import bcrypt from 'bcryptjs';
 
-export async function loginAction(prevState: any, formData: FormData) {
-  const name = formData.get('name')?.toString().trim();
-  const rawPhone = formData.get('phone')?.toString().trim();
+// ✨ 회원가입 로직 (비밀번호 암호화 적용)
+export async function signup(name: string, phone: string, password: string) {
+  if (!name || !phone || !password) return { success: false, error: '모든 항목을 입력해주세요.' };
+  
+  const existingUser = await prisma.user.findUnique({ where: { phoneNumber: phone } });
+  if (existingUser) return { success: false, error: '이미 가입된 전화번호입니다. 로그인 탭을 이용해주세요.' };
 
-  if (!name || !rawPhone) {
-    return { error: '이름과 핸드폰 번호를 모두 입력해주세요.' };
-  }
+  // 비밀번호를 10번 꼬아서 암호화 (복호화 불가능)
+  const hashedPassword = await bcrypt.hash(password, 10);
 
-  const phone = rawPhone.replace(/[^0-9]/g, '');
+  const newUser = await prisma.user.create({
+    data: { name, phoneNumber: phone, password: hashedPassword },
+  });
 
-  try {
-    let user = await prisma.user.findUnique({
-      where: { phone },
-    });
-
-    if (user) {
-      if (user.name !== name) {
-        return { error: '등록된 전화번호의 이름과 일치하지 않습니다.' };
-      }
-    } else {
-      user = await prisma.user.create({
-        data: { name, phone },
-      });
-    }
-
-    await createSession(user.id);
-    
-  } catch (error) {
-    console.error('Login Error:', error);
-    return { error: '로그인 처리 중 오류가 발생했습니다. 다시 시도해주세요.' };
-  }
-
-  redirect('/');
+  const cookieStore = await cookies();
+  cookieStore.set('userId', newUser.id, { 
+    httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 24 * 7, path: '/' 
+  });
+  
+  return { success: true };
 }
 
-// app/actions/auth.ts 맨 아래 로그아웃 함수를 이렇게 바꿔주십쇼!
+// ✨ 로그인 로직 (암호화된 비밀번호 검증)
+export async function login(phone: string, password: string) {
+  if (!phone || !password) return { success: false, error: '전화번호와 비밀번호를 입력해주세요.' };
+
+  const user = await prisma.user.findUnique({ where: { phoneNumber: phone } });
+  if (!user) return { success: false, error: '가입되지 않은 전화번호입니다.' };
+  
+  if (!user.password) return { success: false, error: '초기 가입자입니다. 소통·문의 채널로 문의해주세요.' };
+
+  // 입력한 비밀번호와 DB의 암호화된 비밀번호 비교
+  const isValid = await bcrypt.compare(password, user.password);
+  if (!isValid) return { success: false, error: '비밀번호가 일치하지 않습니다.' };
+
+  const cookieStore = await cookies();
+  cookieStore.set('userId', user.id, { 
+    httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 24 * 7, path: '/' 
+  });
+  
+  return { success: true };
+}
 
 export async function logout() {
-  // ✨ 핵심: await를 반드시 붙여야 합니다!
   const cookieStore = await cookies();
-  cookieStore.delete('session'); 
+  cookieStore.delete('userId');
 }

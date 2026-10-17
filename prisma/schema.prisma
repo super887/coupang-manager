@@ -8,18 +8,18 @@ datasource db {
 }
 
 model User {
-  id           String     @id @default(uuid())
+  id           String       @id @default(uuid())
   name         String
-  phone        String     @unique
+  phone        String       @unique
+  password     String?      // ✨ 해킹 방지용 비밀번호 저장 필드 추가!
   geminiApiKey String?
-  customPrompt String     @default("이 제품을 직접 사용해본 것처럼 자연스럽고 긍정적인 리뷰를 300자 내외로 작성해 주세요.") // 수정됨
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  customPrompt String       @default("이 제품을 직접 사용해본 것처럼 자연스럽고 긍정적인 리뷰를 300자 내외로 작성해 주세요.")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   purchases    Purchase[]
   
-  // ✨ 이 두 줄을 반드시 추가해야 합니다! ✨
-  accountInfos   AccountInfo[]
-  sellerInfos    SellerInfo[]
+  accountInfos AccountInfo[]
+  sellerInfos  SellerInfo[]
 
   @@unique([name, phone])
 }
@@ -30,7 +30,7 @@ model Purchase {
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   purchaseDate     String
   
-  accountHolder    String   @default("") // ✨ 이 줄이 포함된 녀석 딱 하나만 남겨주세요!
+  accountHolder    String   @default("")
   
   productName      String
   chatRoomName     String
