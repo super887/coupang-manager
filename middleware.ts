@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const protectedRoutes = ['/'];
-const publicRoutes = ['/login'];
+// 기존
+// const protectedRoutes = ['/'];
+// const publicRoutes = ['/login'];
+
+// ✨ 변경 후
+const protectedRoutes = ['/dashboard']; // 진짜 대시보드는 꽁꽁 숨김
+const publicRoutes = ['/', '/login'];   // 메인 화면과 로그인 창은 누구나 접근 가능!
 const adminRoutes = ['/admin']; // ✨ 관리자 경로 추가
 
 export function middleware(request: NextRequest) {
