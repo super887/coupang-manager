@@ -81,3 +81,22 @@ model SellerInfo {
 
   @@index([userId])
 }
+
+// 기존 User 모델에 role 필드만 딱 추가해 주십쇼!
+model User {
+  id           String       @id @default(uuid())
+  name         String
+  phone        String       @unique
+  password     String?      
+  role         String       @default("user") // ✨ 권한 구분: 'user', 'admin', 'banned'
+  geminiApiKey String?
+  customPrompt String       @default("...") // (기존 프롬프트 내용 유지)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  purchases    Purchase[]
+  
+  accountInfos AccountInfo[]
+  sellerInfos  SellerInfo[]
+
+  @@unique([name, phone])
+}

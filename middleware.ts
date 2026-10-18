@@ -3,21 +3,27 @@ import type { NextRequest } from 'next/server';
 
 const protectedRoutes = ['/'];
 const publicRoutes = ['/login'];
+const adminRoutes = ['/admin']; // ✨ 관리자 경로 추가
 
 export function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isProtectedRoute = protectedRoutes.includes(path);
   const isPublicRoute = publicRoutes.includes(path);
+  const isAdminRoute = path.startsWith('/admin') && path !== '/admin/login'; // 관리자 경론데 로그인창이 아닌 경우
 
-  // ✨ 핵심 수정: 무거운 verifySession() 대신, 미들웨어 자체 기능으로 빠르고 안전하게 쿠키 확인!
   const userId = request.cookies.get('userId')?.value;
+  const adminToken = request.cookies.get('adminToken')?.value;
 
-  // 로그인되지 않은 사용자가 보호된 페이지(대시보드) 접근 시 로그인으로 튕겨냄
+  // ✨ 관리자 라우트 보호
+  if (isAdminRoute && !adminToken) {
+    return NextResponse.redirect(new URL('/admin/login', request.nextUrl));
+  }
+
+  // 일반 라우트 보호
   if (isProtectedRoute && !userId) {
     return NextResponse.redirect(new URL('/login', request.nextUrl));
   }
 
-  // 이미 로그인된(도장이 있는) 사용자가 로그인 페이지 접근 시 메인으로 자동 통과
   if (isPublicRoute && userId) {
     return NextResponse.redirect(new URL('/', request.nextUrl));
   }
