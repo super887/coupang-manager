@@ -75,48 +75,50 @@ export default function ApiKeyForm({
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mb-6">
+      
+      {/* 상단 타이틀 영역 */}
+      <div className="flex items-center gap-3 flex-wrap mb-6 border-b border-gray-100 pb-4">
+        <h3 className="text-lg font-bold text-gray-800">🔑 Gemini API 키 설정</h3>
+        <span className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-[13px] font-extrabold shadow-sm flex items-center gap-1.5">
+          <span className="animate-bounce inline-block">💸</span> 
+          AI사용 완전무료! (리뷰작성 500건)
+        </span>
+      </div>
+
       <div className="flex flex-col xl:flex-row gap-8 items-start">
         
-        {/* 💡 초보자를 위한 친절한 이미지 가이드 및 발급 버튼 영역 */}
+        {/* 💡 초보자를 위한 1번 가이드 영역 */}
         <div className="w-full xl:w-1/2 space-y-4">
-          
-          <div className="flex flex-wrap justify-between items-center gap-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="text-lg font-bold text-gray-800">🔑 Gemini API 키 설정</h3>
-              
-              <span className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-[13px] font-extrabold shadow-sm flex items-center gap-1.5">
-                <span className="animate-bounce inline-block">💸</span> 
-                AI사용 완전무료! (리뷰작성 500건)
-              </span>
-            </div>
+          <div className="bg-gray-50 p-5 rounded-xl border border-gray-100">
             
-            <a 
-              href="https://aistudio.google.com/api-keys" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-1"
-            >
-              🚀 API Key 받으러 가기
-            </a>
-          </div>
-          
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mt-2">
-            <p className="text-sm text-gray-600 font-medium mb-3">
-              위 버튼을 눌러 Google AI Studio에 접속한 후, 아래 이미지처럼 <span className="text-red-500 font-bold">복사 버튼</span>을 클릭하세요.
-            </p>
-            <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+            {/* ✨ 1단계: 텍스트 섞인 버튼과 설명 */}
+            <div className="text-[15px] text-gray-700 leading-relaxed font-medium flex items-center flex-wrap gap-2 mb-4">
+              <span className="text-2xl text-purple-600">❶</span>
+              <a 
+                href="https://aistudio.google.com/api-keys" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-sm font-bold hover:bg-blue-100 hover:text-blue-700 transition-colors shadow-sm"
+              >
+                🚀 API Key 받으러 가기
+              </a>
+              <span className="mt-1 lg:mt-0">버튼을 눌러 Google AI Studio에 접속한 후, 아래 이미지처럼 <span className="text-red-500 font-bold">복사 버튼</span>을 클릭하세요.</span>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm bg-white">
               <img src="/key.png" alt="API 키 복사 가이드" className="w-full h-auto object-contain" />
             </div>
           </div>
         </div>
 
-        {/* 📝 입력 폼 영역 */}
-        <div className="w-full xl:w-1/2 space-y-4 xl:mt-14">
-          <form onSubmit={handleSave} className="space-y-4">
+        {/* 📝 입력 폼 영역 (2번, 3번) */}
+        <div className="w-full xl:w-1/2 space-y-4 xl:mt-2">
+          <form onSubmit={handleSave} className="space-y-5">
+            
+            {/* ✨ 2단계: API 키 입력란 */}
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">
-                API키 입력 
-                {/* ✨ 키 유무에 따라 조건부로 렌더링되는 경고/성공 문구 */}
+              <label className="flex items-center text-sm font-bold text-gray-700 mb-2">
+                <span className="text-2xl text-purple-600 mr-1.5">❷</span> API키 입력 
                 {hasKey ? (
                   <span className="text-green-500 text-xs ml-2">(✅ 현재 저장된 키가 있습니다)</span>
                 ) : (
@@ -128,30 +130,32 @@ export default function ApiKeyForm({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="[ ctrl + v 를 입력하여 키를 입력해주세요 ]"
-                className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow"
+                className="w-full p-3.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow bg-gray-50 focus:bg-white"
               />
             </div>
 
+            {/* 프롬프트 입력 */}
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">
+              <label className="block text-sm font-bold text-gray-700 mb-2 pl-8">
                 AI 리뷰 맞춤 프롬프트 (수정가능) 
               </label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="프롬프트를 자유롭게 수정해보세요."
-                rows={11} 
-                className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow resize-none leading-relaxed"
+                rows={9} 
+                className="w-full p-4 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium text-sm transition-shadow resize-none leading-relaxed bg-gray-50 focus:bg-white"
               />
             </div>
 
-            <div className="flex justify-end">
+            {/* ✨ 3단계: 설정 저장 버튼 */}
+            <div className="flex justify-end pt-2">
               <button 
                 type="submit" 
                 disabled={isSaving}
-                className="bg-gray-800 hover:bg-gray-900 text-white font-bold px-6 py-2.5 rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white font-bold px-7 py-3 rounded-xl transition-transform transform hover:-translate-y-0.5 shadow-md hover:shadow-lg disabled:opacity-50 disabled:hover:translate-y-0"
               >
-                {isSaving ? '저장 중...' : '설정 저장'}
+                <span className="text-xl">❸</span> {isSaving ? '저장 중...' : '설정 저장'}
               </button>
             </div>
           </form>
