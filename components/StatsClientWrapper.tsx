@@ -6,6 +6,48 @@ import { getStatsData } from '@/app/actions/stats';
 const getStr = (val: any) => (val === null || val === undefined) ? '' : String(val);
 const getNum = (val: any) => (val === null || val === undefined || isNaN(Number(val))) ? 0 : Number(val);
 
+// ✨ 통계 페이지 전용 쿠팡 배너 컴포넌트 (리액트 충돌 방지용 샌드박스 처리)
+const StatsCoupangBanner = () => {
+  const iframeHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { 
+            margin: 0; padding: 0; 
+            display: flex; justify-content: center; align-items: center; 
+            background-color: transparent; 
+          }
+        </style>
+      </head>
+      <body>
+        <script src="https://ads-partners.coupang.com/g.js"></script>
+        <script>
+          new PartnersCoupang.G({"id":1040739,"template":"carousel","trackingCode":"AF5941029","width":"680","height":"140","tsource":""});
+        </script>
+      </body>
+    </html>
+  `;
+
+  return (
+    <div className="w-full flex flex-col items-center justify-center py-8 bg-gray-50 border-t border-gray-200 mt-6 rounded-2xl shadow-sm border">
+      <iframe
+        srcDoc={iframeHtml}
+        width="680"
+        height="140"
+        frameBorder="0"
+        scrolling="no"
+        className="max-w-full"
+        style={{ border: 'none', backgroundColor: 'transparent' }}
+      />
+      <p className="mt-4 text-[11px] text-gray-400 tracking-tight text-center font-medium">
+        "이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
+      </p>
+    </div>
+  );
+};
+
 export default function StatsClientWrapper() {
   const [rawData, setRawData] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -69,16 +111,12 @@ export default function StatsClientWrapper() {
     return { totalJobs, totalCost, estimatedProfit, actualProfit, dailyCounts, daysInMonth };
   }, [rawData, selectedMonth]);
 
-  // ✨ 라이브러리 없이 엑셀(CSV)을 즉석에서 찍어내는 완벽한 방탄 함수
   const handleExportExcel = () => {
-    // 1. 현재 선택된 월의 데이터만 필터링
     const targetData = rawData.filter(item => getStr(item.purchaseDate).startsWith(selectedMonth));
     if (targetData.length === 0) return alert('해당 월에 엑셀로 저장할 데이터가 없습니다.');
 
-    // 2. 엑셀 헤더 설정
     const headers = ['구매일', '계정주', '플랫폼', '상품명', '카톡방명', '페이백명', '기타메모(연락처)', '가격', '리뷰타입', 'AI리뷰내용', '작성완료', '상페완료', '리페완료'];
     
-    // 3. 데이터를 엑셀 행(Row) 규격에 맞게 변환
     const rows = targetData.map(row => [
       getStr(row.purchaseDate),
       getStr(row.accountHolder),
@@ -95,18 +133,16 @@ export default function StatsClientWrapper() {
       row.isReviewPayback ? 'O' : 'X',
     ]);
 
-    // 4. 쉼표나 따옴표가 내용에 들어가도 표가 깨지지 않게 이스케이프 처리
     const csvContent = [
       headers.join(','),
       ...rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     ].join('\n');
 
-    // 5. 한글 깨짐 방지(BOM 문자 '\uFEFF' 추가) 후 다운로드 트리거
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `구매내역_정산_${selectedMonth}.csv`); // 파일명 예시: 구매내역_정산_2026-10.csv
+    link.setAttribute('download', `구매내역_정산_${selectedMonth}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -124,6 +160,44 @@ export default function StatsClientWrapper() {
   return (
     <div className="animate-in fade-in duration-300 w-full max-w-5xl mx-auto space-y-6">
       
+      {/* ✨ 통계 페이지: 플랫폼 바로가기 & 쿠팡 검색창 ✨ */}
+      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white p-3 rounded-2xl shadow-sm border border-gray-200 w-full">
+        <div className="flex flex-wrap gap-3 w-full xl:w-auto">
+          {/* 쿠팡 */}
+          <a href="https://link.coupang.com/a/hWThgSlpCu" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-blue-300 hover:bg-blue-50 transition-all group shadow-sm">
+            <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-white border border-gray-100 group-hover:scale-110 transition-transform">
+              <img src="data:image/png;base64,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" alt="Coupang" className="w-full h-full object-cover" />
+            </div>
+            <span className="font-bold text-gray-700 group-hover:text-blue-700 text-sm transition-colors">🚀 쿠팡(할인)</span>
+          </a>
+          {/* 네이버 */}
+          <a href="https://www.naver.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-green-400 hover:bg-green-50 transition-all group shadow-sm">
+            <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-white border border-gray-100 group-hover:scale-110 transition-transform">
+              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcBAMAAACAI8KnAAAAMFBMVEUeyAAAxQAAxADs+ev////6//m467Pi9uHD7r6x6KuC3XgmygrU89CQ4Iin5qHJ8cMfkHdFAAAAYUlEQVR4AWOgKRBSUgIRihAeo4mLKwNjiouzAIRb4uLSxDjFxR3B9RJE4bpsROUeQuX6PkHhunxB4voD+UhcvysoXE8dVK40KldwCQpXQALBNXFxE2AIgXoB6jclIEFLAAD2tiUhfIzieAAAAABJRU5ErkJggg==" alt="Naver" className="w-full h-full object-cover p-1" />
+            </div>
+            <span className="font-bold text-gray-700 group-hover:text-green-700 text-sm transition-colors">네이버</span>
+          </a>
+          {/* 지마켓 */}
+          <a href="https://www.gmarket.co.kr/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-green-500 hover:bg-green-50 transition-all group shadow-sm">
+            <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-white border border-gray-100 group-hover:scale-110 transition-transform">
+              <img src="https://blog.kakaocdn.net/dna/UIGeR/btsrsRIruv5/AAAAAAAAAAAAAAAAAAAAADL-V5RuANqZCBbmB1nfPUBHhPnlaiQkiZjOsh2H8qCv/img.png?credential=yqXZFxpELC7KVnFOS48ylbz2pIh7yKj8&expires=1793458799&allow_ip=&allow_referer=&signature=5xg4LbafYGjRmlGtNYT2HKyoz6I%3D" alt="Gmarket" className="w-full h-full object-cover" />
+            </div>
+            <span className="font-bold text-gray-700 group-hover:text-green-700 text-sm transition-colors">지마켓</span>
+          </a>
+          {/* 11번가 */}
+          <a href="https://www.11st.co.kr/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-red-500 hover:bg-red-50 transition-all group shadow-sm">
+            <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-white border border-gray-100 group-hover:scale-110 transition-transform">
+              <img src="https://i.namu.wiki/i/Hoj-MVl7c1jGLFuXwYHtyTZ0GgGEvsOxKeJ2wNlqF6bEo9pvzGIgb0YN6bnNfoO-IufDLE0M2j0vRk8BJo042Ipo-hCiBsZ1ojt6AOJgmJ9-dFm-mVcySPxLowRzVHVyuZ-eJYkUnoloRdl6wIYsgg.svg" alt="11st" className="w-full h-full object-cover p-1" />
+            </div>
+            <span className="font-bold text-gray-700 group-hover:text-red-700 text-sm transition-colors">11번가</span>
+          </a>
+        </div>
+
+        <div className="w-full xl:w-[300px] h-[75px] rounded-xl overflow-hidden flex items-center justify-center xl:justify-end border border-gray-100 shadow-sm flex-shrink-0">
+          <iframe src="https://coupa.ng/cqe0B2" width="100%" height="75" frameBorder="0" scrolling="no" referrerPolicy="unsafe-url" title="쿠팡 상품 검색" className="w-full h-full"></iframe>
+        </div>
+      </div>
+
       {/* 🗓️ 월 선택 및 엑셀 다운로드 컨트롤러 */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center flex-wrap gap-4">
         <h2 className="text-xl font-bold text-gray-800">📊 월간 통계 및 정산</h2>
@@ -200,6 +274,10 @@ export default function StatsClientWrapper() {
           <div className="text-3xl font-extrabold text-green-700">{stats.actualProfit.toLocaleString()}<span className="text-lg font-medium text-green-500 ml-1">원</span></div>
         </div>
       </div>
+
+      {/* ✨ 통계 페이지 하단 전용 쿠팡 배너 영역 ✨ */}
+      <StatsCoupangBanner />
+
     </div>
   );
 }
