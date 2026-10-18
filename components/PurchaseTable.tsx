@@ -8,32 +8,46 @@ import { generateAiReview } from '@/app/actions/ai';
 const getStr = (val: any) => (val === null || val === undefined) ? '' : String(val);
 const getNum = (val: any) => (val === null || val === undefined || isNaN(Number(val))) ? 0 : Number(val);
 
-// ✨ 리액트 환경에서 완벽하게 돌아가는 쿠팡 파트너스 전용 컴포넌트!
+// ✨ 리액트 환경에서 완벽하게 격리된 쿠팡 파트너스 전용 컴포넌트 (iframe 샌드박스)
 const CoupangBanner = () => {
-  const adRef = useRef<HTMLDivElement>(null);
+  const iframeHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { 
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            background-color: #f9fafb; /* 배경색 맞춤 (gray-50) */
+          }
+        </style>
+      </head>
+      <body>
+        <script src="https://ads-partners.coupang.com/g.js"></script>
+        <script>
+          new PartnersCoupang.G({"id":1040729,"template":"carousel","trackingCode":"AF5941029","width":"680","height":"140","tsource":""});
+        </script>
+      </body>
+    </html>
+  `;
 
-  useEffect(() => {
-    if (!adRef.current) return;
-    // 중복 실행 방지
-    if (adRef.current.childElementCount > 0) return;
-
-    const script1 = document.createElement('script');
-    script1.src = 'https://ads-partners.coupang.com/g.js';
-    script1.async = true;
-
-    const script2 = document.createElement('script');
-    script2.text = `
-      new PartnersCoupang.G({"id":1040729,"template":"carousel","trackingCode":"AF5941029","width":"680","height":"140","tsource":""});
-    `;
-
-    script1.onload = () => {
-      if (adRef.current) adRef.current.appendChild(script2);
-    };
-
-    adRef.current.appendChild(script1);
-  }, []);
-
-  return <div ref={adRef} className="w-full max-w-[680px] mx-auto min-h-[140px] flex justify-center overflow-hidden"></div>;
+  return (
+    <div className="w-full flex justify-center overflow-hidden">
+      <iframe
+        srcDoc={iframeHtml}
+        width="680"
+        height="140"
+        frameBorder="0"
+        scrolling="no"
+        className="max-w-full"
+        style={{ border: 'none', backgroundColor: 'transparent' }}
+      />
+    </div>
+  );
 };
 
 export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: any[], hasApiKey?: boolean }) {
@@ -480,7 +494,7 @@ export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: 
       </div>
 
       {/* ✨ 쿠팡 파트너스 배너 및 필수 고지 문구 삽입 영역 ✨ */}
-      <div className="py-8 bg-gray-50 flex flex-col items-center justify-center border-t border-gray-200 px-4">
+      <div className="py-8 bg-gray-50 flex flex-col items-center justify-center border-t border-gray-200 px-4 rounded-b-xl">
         <CoupangBanner />
         <p className="mt-4 text-[11px] text-gray-400 tracking-tight text-center font-medium">
           "이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
