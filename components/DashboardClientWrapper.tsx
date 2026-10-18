@@ -60,7 +60,7 @@ export default function DashboardClientWrapper() {
                 className="w-full h-full object-cover" 
               />
             </div>
-            <span className="font-bold text-gray-700 group-hover:text-blue-700 text-sm transition-colors">🚀 쿠팡(할인)</span>
+            <span className="font-bold text-gray-700 group-hover:text-blue-700 text-sm transition-colors">🚀 쿠팡</span>
           </a>
           
           {/* 네이버 */}

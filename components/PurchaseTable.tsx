@@ -8,7 +8,34 @@ import { generateAiReview } from '@/app/actions/ai';
 const getStr = (val: any) => (val === null || val === undefined) ? '' : String(val);
 const getNum = (val: any) => (val === null || val === undefined || isNaN(Number(val))) ? 0 : Number(val);
 
-// ✨ hasApiKey 프롭스 추가
+// ✨ 리액트 환경에서 완벽하게 돌아가는 쿠팡 파트너스 전용 컴포넌트!
+const CoupangBanner = () => {
+  const adRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!adRef.current) return;
+    // 중복 실행 방지
+    if (adRef.current.childElementCount > 0) return;
+
+    const script1 = document.createElement('script');
+    script1.src = 'https://ads-partners.coupang.com/g.js';
+    script1.async = true;
+
+    const script2 = document.createElement('script');
+    script2.text = `
+      new PartnersCoupang.G({"id":1040729,"template":"carousel","trackingCode":"AF5941029","width":"680","height":"140","tsource":""});
+    `;
+
+    script1.onload = () => {
+      if (adRef.current) adRef.current.appendChild(script2);
+    };
+
+    adRef.current.appendChild(script1);
+  }, []);
+
+  return <div ref={adRef} className="w-full max-w-[680px] mx-auto min-h-[140px] flex justify-center overflow-hidden"></div>;
+};
+
 export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: any[], hasApiKey?: boolean }) {
   const safeAccounts = Array.isArray(accounts) ? accounts : [];
 
@@ -117,7 +144,6 @@ export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: 
   const handleGenerateAi = async (e: React.MouseEvent, id: string, productName: string) => {
     e.preventDefault();
     
-    // ✨ 개별 생성 API 키 차단 방어막
     if (!hasApiKey) {
       alert("api키가 입력 되지않았습니다. gemini api 키 설정 화면을 참고해 api 키를 입력해주세요");
       return;
@@ -137,11 +163,9 @@ export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: 
     }
   };
 
-  // ✨ 전체 리뷰 작성
   const handleBulkGenerateAi = async (e: React.MouseEvent) => {
     e.preventDefault();
     
-    // ✨ 전체 생성 API 키 차단 방어막
     if (!hasApiKey) {
       alert("api키가 입력 되지않았습니다. gemini api 키 설정 화면을 참고해 api 키를 입력해주세요");
       return;
@@ -453,6 +477,14 @@ export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: 
         <button type="button" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">이전</button>
         <span className="text-sm font-bold text-gray-600 px-4">{currentPage} / {totalPages} 페이지</span>
         <button type="button" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded bg-gray-100 text-gray-700 disabled:opacity-30 font-bold">다음</button>
+      </div>
+
+      {/* ✨ 쿠팡 파트너스 배너 및 필수 고지 문구 삽입 영역 ✨ */}
+      <div className="py-8 bg-gray-50 flex flex-col items-center justify-center border-t border-gray-200 px-4">
+        <CoupangBanner />
+        <p className="mt-4 text-[11px] text-gray-400 tracking-tight text-center font-medium">
+          "이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
+        </p>
       </div>
 
       {modalReview && (
