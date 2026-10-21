@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 import { verifySession } from '@/lib/session';
 import { revalidatePath } from 'next/cache';
 
-// ✨ 페이징 + 검색 + 완료탭 필터링을 한 방에 처리하는 만능 함수
+// ✨ 페이징 + 검색 + 완료탭 필터링을 한 방에 처리하는 만능 함수 (가격 검색 완벽 대응!)
 export async function getPaginatedPurchases({
   page = 1,
   pageSize = 100, // 한 페이지 100개
@@ -32,8 +32,20 @@ export async function getPaginatedPurchases({
 
   // 검색 필터링 로직
   if (searchKeyword.trim() !== '') {
-    // 필드에 따라 유연하게 검색
-    where[searchField] = { contains: searchKeyword };
+    if (searchField === 'price') {
+      // ✨ 가격 검색일 경우: 콤마(,)나 문자('원' 등)를 제거하고 순수 숫자만 추출해서 정수로 변환
+      const numericString = searchKeyword.replace(/[^0-9]/g, '');
+      const numericPrice = parseInt(numericString, 10);
+      
+      if (!isNaN(numericPrice)) {
+        where.price = numericPrice; // 정확히 일치하는 가격 검색
+      } else {
+        where.price = -1; // 숫자가 아니면 검색 결과가 안 나오도록 방어
+      }
+    } else {
+      // 그 외 일반 텍스트 필드 검색
+      where[searchField] = { contains: searchKeyword };
+    }
   }
 
   // DB에서 개수와 데이터를 동시에 뽑아옴 (Promise.all로 속도 극대화)
