@@ -335,6 +335,8 @@ export default function PurchaseTable({ accounts = [], hasApiKey }: { accounts: 
             <option value="platform">플랫폼</option>
             <option value="chatRoomName">카톡방명</option>
             <option value="paybackName">페이백명</option>
+            <option value="contactOnBangpok">기타메모</option> {/* ✨ 기타메모 검색 추가! */}
+            <option value="price">가격</option>               {/* ✨ 가격 검색 추가! */}
           </select>
           <input 
             type="text" value={searchInput} 
