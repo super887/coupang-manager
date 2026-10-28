@@ -7,10 +7,27 @@ export async function getStatsData() {
   const session = await verifySession();
   if (!session?.userId) return [];
 
-  // ✨ 엑셀 다운로드를 위해 select 제한을 없애고 전체 데이터를 가져옵니다.
+  // 통계 및 엑셀 다운로드에 필요한 필드만 엄선하여 전송량/지연 최소화
   const data = await prisma.purchase.findMany({
     where: { userId: session.userId },
-    orderBy: { purchaseDate: 'desc' }, // 최신순 정렬
+    select: {
+      id: true,
+      purchaseDate: true,
+      accountHolder: true,
+      productName: true,
+      chatRoomName: true,
+      platform: true,
+      price: true,
+      reviewType: true,
+      paybackName: true,
+      contactOnBangpok: true,
+      isReviewWritten: true,
+      isProductPayback: true,
+      isReviewPayback: true,
+      generatedReview: true,
+      createdAt: true,
+    },
+    orderBy: { purchaseDate: 'desc' },
   });
 
   return data;

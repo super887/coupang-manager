@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { getStatsData } from '@/app/actions/stats';
+import { useCachedData } from '@/lib/useCachedData';
+import { todayKST } from '@/lib/date';
 
 const getStr = (val: any) => (val === null || val === undefined) ? '' : String(val);
 const getNum = (val: any) => (val === null || val === undefined || isNaN(Number(val))) ? 0 : Number(val);
@@ -49,28 +51,18 @@ const StatsCoupangBanner = () => {
 };
 
 export default function StatsClientWrapper() {
-  const [rawData, setRawData] = useState<any[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
-  
-  const today = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
+  const currentKst = todayKST();
+  const defaultMonth = currentKst.slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
 
-  useEffect(() => {
-    const cached = localStorage.getItem('optimistic_stats');
-    if (cached) setRawData(JSON.parse(cached));
-    setIsLoaded(true);
-
-    const fetchLatest = async () => {
-      try {
-        const data = await getStatsData();
-        setRawData(data || []);
-        localStorage.setItem('optimistic_stats', JSON.stringify(data || []));
-      } catch (e) {
-        console.error('통계 동기화 실패', e);
-      }
-    };
-    fetchLatest();
-  }, []);
+  const { data: rawData, isLoaded } = useCachedData<any[]>({
+    key: 'optimistic_stats',
+    initialData: [],
+    fetcher: async () => {
+      const data = await getStatsData();
+      return data || [];
+    },
+  });
 
   const stats = useMemo(() => {
     if (!selectedMonth) return { totalJobs: 0, totalCost: 0, estimatedProfit: 0, actualProfit: 0, dailyCounts: [], daysInMonth: 30 };

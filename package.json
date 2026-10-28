@@ -10,6 +10,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@prisma/client": "^5.19.0",
     "@tailwindcss/postcss": "^4.3.3",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.12",
@@ -19,8 +20,6 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@prisma/client": "^5.19.0",
-    "@tailwindcss/turbopack": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
