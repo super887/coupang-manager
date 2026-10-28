@@ -70,9 +70,13 @@ export async function addPurchase(defaultAccount: string = '') {
   const session = await verifySession();
   if (!session?.userId) throw new Error('로그인이 필요합니다.');
 
+  // 한국 표준시(KST, UTC+9) 기준 오늘 날짜 (YYYY-MM-DD)
+  const now = new Date();
+  const kstDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(now);
+
   const defaultData = {
     userId: session.userId,
-    purchaseDate: new Date().toISOString().split('T')[0],
+    purchaseDate: kstDate,
     accountHolder: defaultAccount,
     productName: '',
     chatRoomName: '',
