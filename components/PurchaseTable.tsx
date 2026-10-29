@@ -10,42 +10,10 @@ import {
   getPaginatedPurchases,
 } from '@/app/actions/purchase';
 import { generateAiReview } from '@/app/actions/ai';
+import { splitReviewCandidates, extractCleanReview } from '@/lib/review-parser';
 
 // 🛡️ 절대 안 터지는 안전 변환 함수들
 const getStr = (val: any) => (val === null || val === undefined ? '' : String(val));
-
-// ✨ AI가 3가지 스타일(1/2/3번 또는 첫번째/두번째/세번째 리뷰)로 생성한 텍스트에서
-// 라벨 접두어를 제거하고 깔끔한 단일 리뷰 본문만 추출하는 헬퍼 함수
-function splitReviewCandidates(rawText: string): string[] {
-  const trimmed = getStr(rawText).trim();
-  if (!trimmed) return [];
-
-  // 빈 줄(\n\n) 또는 번호/순서 라벨 기준으로 블록 분리
-  const rawBlocks = trimmed
-    .split(/\n\s*\n+/)
-    .map((b) => b.trim())
-    .filter(Boolean);
-
-  const cleanedBlocks = rawBlocks
-    .map((block) =>
-      block
-        .replace(
-          /^(?:\*{0,2}(?:[1-3][\.\)\번]\s*(?:리뷰)?|(?:첫|두|세|쎄)\s*번째\s*리뷰)\*{0,2}\s*[:：\-]?\s*)/i,
-          ''
-        )
-        .replace(/^["'「]|["'」]$/g, '')
-        .trim()
-    )
-    .filter((b) => b.length >= 10);
-
-  return cleanedBlocks.length > 0 ? cleanedBlocks : [trimmed];
-}
-
-function extractCleanReview(rawText: string, styleIndex: number = 0): string {
-  const candidates = splitReviewCandidates(rawText);
-  if (candidates.length === 0) return '';
-  return candidates[Math.abs(styleIndex) % candidates.length];
-}
 
 // ✨ 리액트 환경에서 완벽하게 격리된 쿠팡 파트너스 전용 컴포넌트 (iframe 샌드박스)
 const CoupangBanner = () => {
@@ -111,7 +79,12 @@ export default function PurchaseTable({
 
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
-  const [modalReview, setModalReview] = useState<{ id: string; text: string } | null>(null);
+  const [modalReview, setModalReview] = useState<{
+    id: string;
+    originalText: string;
+    currentText: string;
+    selectedStyle: number | 'all';
+  } | null>(null);
 
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
@@ -1177,9 +1150,12 @@ export default function PurchaseTable({
                               type="button"
                               onClick={(e) => {
                                 e.preventDefault();
+                                const rawRev = getStr(row.generatedReview);
                                 setModalReview({
                                   id: row.id,
-                                  text: getStr(row.generatedReview),
+                                  originalText: rawRev,
+                                  currentText: rawRev,
+                                  selectedStyle: 'all',
                                 });
                               }}
                               className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full"
@@ -1339,97 +1315,195 @@ export default function PurchaseTable({
       </div>
 
       {/* 📄 AI 리뷰 확인 및 스타일 선택 모달 */}
-      {modalReview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-lg font-bold text-gray-800">📄 AI 리뷰 확인 및 선택</h3>
-              <button
-                type="button"
-                onClick={() => setModalReview(null)}
-                className="text-gray-400 hover:text-gray-600 font-bold text-xl"
-              >
-                ✕
-              </button>
-            </div>
+      {modalReview && (() => {
+        const candidates = splitReviewCandidates(modalReview.originalText);
+        const hasMultiple = candidates.length > 1;
 
-            {/* 3가지 스타일이 들어있을 때 원클릭으로 단일 스타일만 남기는 편의 버튼 */}
-            {splitReviewCandidates(modalReview.text).length > 1 && (
-              <div className="mb-3 p-2.5 bg-purple-50 border border-purple-100 rounded-lg flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-bold text-purple-800">
-                  💡 3가지 스타일 중 하나만 선택해 저장할 수 있습니다:
-                </span>
-                <div className="flex gap-1.5">
-                  {[0, 1, 2].map((idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={async () => {
-                        const picked = extractCleanReview(modalReview.text, idx);
-                        setModalReview({ ...modalReview, text: picked });
-                        setLocalData((prev) =>
-                          prev.map((r) =>
-                            r.id === modalReview.id ? { ...r, generatedReview: picked } : r
-                          )
-                        );
-                        await updatePurchase(modalReview.id, { generatedReview: picked });
-                        showToast(`${idx + 1}번 스타일 리뷰로 확정 저장되었습니다.`, 'success');
-                      }}
-                      className="px-2.5 py-1 bg-white hover:bg-purple-600 hover:text-white text-purple-700 border border-purple-200 rounded text-xs font-bold transition-colors"
-                    >
-                      {idx + 1}번 스타일만 남기기
-                    </button>
-                  ))}
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-3 border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📄</span>
+                  <h3 className="text-lg font-bold text-gray-800">AI 리뷰 확인 및 선택</h3>
+                  {hasMultiple && (
+                    <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full font-semibold">
+                      총 {candidates.length}개 스타일
+                    </span>
+                  )}
                 </div>
-              </div>
-            )}
-
-            <textarea
-              value={modalReview.text}
-              onChange={(e) => {
-                setModalReview({ ...modalReview, text: e.target.value });
-                setLocalData((prev) =>
-                  prev.map((r) =>
-                    r.id === modalReview.id ? { ...r, generatedReview: e.target.value } : r
-                  )
-                );
-              }}
-              className="w-full h-48 p-4 border border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-500 bg-white rounded-lg text-sm resize-none outline-none leading-relaxed"
-              placeholder="리뷰 텍스트를 입력하거나 수정할 수 있습니다."
-            />
-            <div className="mt-5 flex justify-between items-center gap-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  await updatePurchase(modalReview.id, {
-                    generatedReview: modalReview.text,
-                  });
-                  showToast('💾 리뷰 본문이 저장되었습니다!', 'success');
-                }}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold transition-colors"
-              >
-                수정내용 저장
-              </button>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={(e) => handleCopy(e, modalReview.text)}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors"
-                >
-                  복사하기
-                </button>
                 <button
                   type="button"
                   onClick={() => setModalReview(null)}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                  className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none p-1"
                 >
-                  닫기
+                  ✕
                 </button>
+              </div>
+
+              {/* 3가지 스타일이 있을 때 전환 탭 및 빠른 개별 복사 바 */}
+              {hasMultiple && (
+                <div className="mb-3 p-3 bg-purple-50/70 border border-purple-100 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-xs font-bold text-purple-900 flex items-center gap-1">
+                      <span>💡</span> 스타일 전환 (선택해도 원본은 보존됩니다):
+                    </span>
+                    {modalReview.selectedStyle !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModalReview({
+                            ...modalReview,
+                            currentText: modalReview.originalText,
+                            selectedStyle: 'all',
+                          });
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline font-semibold cursor-pointer"
+                      >
+                        ↩ 전체 원본으로 되돌리기
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 스타일 탭 */}
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalReview({
+                          ...modalReview,
+                          currentText: modalReview.originalText,
+                          selectedStyle: 'all',
+                        });
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        modalReview.selectedStyle === 'all'
+                          ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-300'
+                          : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                      }`}
+                    >
+                      📑 전체 원본 보기
+                    </button>
+
+                    {candidates.map((cand, idx) => {
+                      const isSelected = modalReview.selectedStyle === idx;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setModalReview({
+                              ...modalReview,
+                              currentText: cand,
+                              selectedStyle: idx,
+                            });
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                            isSelected
+                              ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-300'
+                              : 'bg-white text-purple-700 hover:bg-purple-100 border border-purple-200'
+                          }`}
+                        >
+                          <span>{idx + 1}번 스타일만 보기</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* 원클릭 빠른 복사 버튼 바 */}
+                  <div className="pt-2 border-t border-purple-100/80 flex items-center flex-wrap gap-1.5">
+                    <span className="text-[11px] font-semibold text-gray-600 mr-1">
+                      ⚡ 1초 복사:
+                    </span>
+                    {candidates.map((cand, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          await navigator.clipboard.writeText(cand);
+                          showToast(`📋 ${idx + 1}번 스타일 리뷰가 클립보드에 복사되었습니다!`, 'success');
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 rounded text-xs font-medium transition-colors shadow-2xs"
+                      >
+                        📋 {idx + 1}번 복사
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 편집 영역 레이블 */}
+              <div className="flex justify-between items-center mb-1 text-xs text-gray-500">
+                <span>
+                  {modalReview.selectedStyle === 'all'
+                    ? '📝 전체 원본 리뷰 (아래에서 자유롭게 수정 가능)'
+                    : `✨ ${Number(modalReview.selectedStyle) + 1}번 스타일 내용`}
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  {modalReview.currentText.length}자
+                </span>
+              </div>
+
+              <textarea
+                value={modalReview.currentText}
+                onChange={(e) => {
+                  setModalReview({ ...modalReview, currentText: e.target.value });
+                }}
+                className="w-full h-48 p-4 border border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-500 bg-white rounded-lg text-sm resize-none outline-none leading-relaxed"
+                placeholder="리뷰 텍스트를 입력하거나 수정할 수 있습니다."
+              />
+
+              <div className="mt-5 flex justify-between items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const textToSave = modalReview.currentText;
+                    setLocalData((prev) =>
+                      prev.map((r) =>
+                        r.id === modalReview.id ? { ...r, generatedReview: textToSave } : r
+                      )
+                    );
+                    await updatePurchase(modalReview.id, {
+                      generatedReview: textToSave,
+                    });
+                    setModalReview({
+                      ...modalReview,
+                      originalText: textToSave,
+                    });
+                    showToast('💾 리뷰 본문이 성공적으로 저장되었습니다!', 'success');
+                  }}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-1.5"
+                >
+                  <span>💾</span>
+                  <span>
+                    {modalReview.selectedStyle === 'all'
+                      ? '수정내용 저장'
+                      : `${Number(modalReview.selectedStyle) + 1}번 스타일로 확정 저장`}
+                  </span>
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopy(e, modalReview.currentText)}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    📋 현재 내용 복사
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalReview(null)}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                  >
+                    닫기
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ✨ 전체 AI 리뷰 생성 진행 모달 */}
       {isBulkGenerating && (

@@ -1,6 +1,6 @@
 // 쿠팡매니저 크롬 확장 프로그램 Service Worker (background.js)
 
-const COUPANG_REVIEW_WAIT_URL = 'https://my.coupang.com/productreview/product/list';
+const COUPANG_REVIEW_WAIT_URL = 'https://my.coupang.com/productreview/reviewable';
 
 function sanitizeFilePart(str, maxLen = 85) {
   if (!str) return '';

@@ -3,6 +3,7 @@
 import prisma from '@/lib/prisma';
 import { verifySession } from '@/lib/session';
 import { decryptText } from '@/lib/crypto';
+import { cleanAndFormatAiReviews } from '@/lib/review-parser';
 
 // 지원 모델 상수 (Gemini Flash Lite 모델)
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -89,11 +90,14 @@ export async function generateAiReview(purchaseId: string, productName: string) 
     throw error;
   }
 
+  // 불필요한 라벨('1.', '첫번째리뷰 :' 등) 자동 제거 및 리뷰 간 줄바꿈(\n\n) 적용
+  const formattedReview = cleanAndFormatAiReviews(generatedText);
+
   // 4. 생성된 텍스트를 Purchase 테이블에 저장 (소유자 안전 확인)
   await prisma.purchase.update({
     where: { id: purchaseId, userId: session.userId },
-    data: { generatedReview: generatedText },
+    data: { generatedReview: formattedReview },
   });
 
-  return generatedText;
+  return formattedReview;
 }

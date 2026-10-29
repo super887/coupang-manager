@@ -75,17 +75,30 @@
 
   // 쿠팡 화면에서 현재 로그인된 사용자 이름(예: "김*연" 또는 "김수연") 추출
   function detectCoupangUserName() {
-    // 1. 리뷰관리 상단 프로필 영역 (예: 김*연)
-    const bodyText = document.body?.innerText || '';
-    const maskedMatch = bodyText.match(/([가-힣]\*+[가-힣]+)/);
-    if (maskedMatch && maskedMatch[1]) {
-      return maskedMatch[1].trim();
+    // 404 에러 페이지인 경우 이름 추출 스킵
+    if (document.body?.innerText?.includes('찾을 수 없는 페이지')) {
+      return '';
     }
 
-    // 2. 상단 헤더 GNB 영역 "OOO님"
-    const headerMatch = bodyText.match(/([가-힣*]{2,5})\s*님/);
-    if (headerMatch && headerMatch[1]) {
-      return headerMatch[1].trim();
+    const STOP_WORDS = new Set(['고객', '회원', '손님', '사용자', '관리자', '상담원', '체험단']);
+
+    // 1. 리뷰관리 상단 프로필 영역 (예: 김*연, 이*온)
+    const bodyText = document.body?.innerText || '';
+    const maskedMatches = Array.from(bodyText.matchAll(/([가-힣]\*+[가-힣]+)/g));
+    for (const m of maskedMatches) {
+      const candidate = (m[1] || '').trim();
+      if (candidate && !STOP_WORDS.has(candidate)) {
+        return candidate;
+      }
+    }
+
+    // 2. 상단 헤더 GNB 영역 "OOO님" (단, '고객님', '회원님' 등 제외)
+    const headerMatches = Array.from(bodyText.matchAll(/([가-힣*]{2,5})\s*님/g));
+    for (const m of headerMatches) {
+      const candidate = (m[1] || '').trim();
+      if (candidate && !STOP_WORDS.has(candidate)) {
+        return candidate;
+      }
     }
 
     return '';
@@ -174,6 +187,12 @@
 
     if (location.hostname.includes('login.coupang.com') || document.querySelector('#login-email-input')) {
       await failTask('쿠팡 로그인이 필요합니다. 먼저 이 크롬 창에서 쿠팡에 로그인해주세요.');
+      return;
+    }
+
+    // 404 잘못된 경로인 경우 리뷰 작성 페이지로 자동 재이동
+    if (document.body?.innerText?.includes('찾을 수 없는 페이지')) {
+      location.href = 'https://my.coupang.com/productreview/reviewable';
       return;
     }
 
@@ -368,17 +387,51 @@
 
     // [합의 사항] 한줄 요약 칸은 입력하지 않고 빈칸 유지!
 
-    // 다음 단계(CAPTURE_WROTE_REVIEW)로 상태 전환 후 [등록하기] 클릭
+    // 다음 단계(CAPTURE_WROTE_REVIEW)로 상태 전환
     const nextTask = { ...task, stage: 'CAPTURE_WROTE_REVIEW' };
     await chrome.storage.local.set({ activeReviewTask: nextTask });
 
-    await reportProgress('리뷰 [등록하기] 클릭 중...');
+    await reportProgress('리뷰 [등록하기] 1회 클릭 중...');
     submitBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(250);
-    triggerClick(submitBtn);
+    await sleep(400);
 
-    // 만약 확인 모달/버튼이 뜨거나 SPA로 전환될 경우를 대비해 대기 후 Stage 3 호출
-    await sleep(1200);
+    // 중복 클릭 없이 정확히 1회만 단독 클릭
+    if (typeof submitBtn.click === 'function') {
+      submitBtn.click();
+    }
+
+    await reportProgress('등록 완료 팝업 확인 대기 중...');
+
+    // "작성하신 리뷰가 등록되었습니다" 팝업 모달의 [확인] 버튼 대기 및 클릭
+    for (let c = 0; c < 20; c++) {
+      await sleep(400);
+
+      const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+      const confirmBtn = allButtons.find((el) => {
+        const text = (el.innerText || '').trim();
+        return (text === '확인' || text.includes('확인')) && el !== submitBtn && el.offsetParent !== null;
+      });
+
+      if (confirmBtn) {
+        await reportProgress('등록 완료 [확인] 버튼 클릭 중...');
+        await sleep(350);
+        if (typeof confirmBtn.click === 'function') {
+          confirmBtn.click();
+        }
+        await sleep(1000);
+        break;
+      }
+
+      // 이미 작성한 리뷰 목록으로 바로 넘어간 경우
+      if (
+        location.href.includes('wroteReviews') ||
+        document.querySelector('li.my-review__wrote__list, li.my-review__wrote_list')
+      ) {
+        break;
+      }
+    }
+
+    await sleep(800);
     isRunningStage = false;
     await checkAndRunTask();
   }
@@ -430,7 +483,9 @@
         return (t === '확인' || t === '닫기') && el.offsetParent !== null;
       });
       if (confirmBtns.length > 0 && !document.querySelector('li.my-review__wrote__list, li.my-review__wrote_list')) {
-        triggerClick(confirmBtns[0]);
+        if (typeof confirmBtns[0].click === 'function') {
+          confirmBtns[0].click();
+        }
         await sleep(400);
       }
 
