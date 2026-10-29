@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "쿠팡매니저 자동 리뷰 & 인증 캡처",
+  "version": "1.0.0",
+  "description": "쿠팡매니저 웹과 연동하여 다계정 리뷰 자동 작성 및 작성 완료 영역(li.my-review__wrote__list) 자동 캡처/저장을 수행합니다.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "downloads",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.coupang.com/*",
+    "http://localhost/*",
+    "https://*.vercel.app/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "쿠팡매니저 자동 리뷰어 설정",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "https://*.vercel.app/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "https://*.coupang.com/*"
+      ],
+      "js": ["content-web.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://my.coupang.com/*",
+        "https://mc.coupang.com/*",
+        "https://www.coupang.com/*",
+        "https://login.coupang.com/*"
+      ],
+      "js": ["content-coupang.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
