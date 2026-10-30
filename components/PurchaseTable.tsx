@@ -505,6 +505,8 @@ export default function PurchaseTable({
               productName,
               reviewType,
               reviewText: cleanReviewText,
+              purchaseDate: getStr(row.purchaseDate),
+              chatRoomName: getStr(row.chatRoomName),
             },
           },
           '*'

@@ -75,6 +75,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         webWindowId,
         accountHolder: targetAccount,
         productName: (payload.productName || '').trim(),
+        purchaseDate: (payload.purchaseDate || '').trim(),
+        chatRoomName: (payload.chatRoomName || '').trim(),
         reviewType,
         reviewText: (payload.reviewText || '').trim(),
         stage: 'FIND_PRODUCT',
@@ -242,11 +244,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sanitizeFilePart(message.productName || task?.productName || '리뷰인증', 80) ||
         '리뷰인증';
 
+      // 구매일 + 카톡방명 기반 하위 폴더 생성 (예: "2026-10-30 젖산마그네슘" 또는 "구매일 카톡방명")
+      const rawDate = message.purchaseDate || task?.purchaseDate || '';
+      const rawChatRoom = message.chatRoomName || task?.chatRoomName || '';
+      const safeDate = sanitizeFilePart(rawDate, 30);
+      const safeChatRoom = sanitizeFilePart(rawChatRoom, 50);
+
+      const subFolderParts = [safeDate, safeChatRoom].filter(Boolean);
+      const subFolder = subFolderParts.length > 0 ? sanitizeFilePart(subFolderParts.join(' '), 80) : '';
+
       const fileBaseName =
         includePrefix && safeAccount
           ? `[${safeAccount}] ${safeProduct}.png`
           : `${safeProduct}.png`;
-      const fullPath = `${folder}/${fileBaseName}`;
+
+      // 하위 폴더가 있으면 [기본폴더]/[구매일 카톡방명]/[계정주] 상품명.png 형태로 저장
+      // (기존 폴더가 이미 있으면 Chrome 다운로드 엔진이 해당 폴더 안에 그대로 저장)
+      const fullPath = subFolder
+        ? `${folder}/${subFolder}/${fileBaseName}`
+        : `${folder}/${fileBaseName}`;
 
       try {
         await chrome.downloads.download({

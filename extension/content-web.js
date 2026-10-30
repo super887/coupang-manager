@@ -5,7 +5,7 @@
 
   // 웹 페이지가 확장 프로그램 설치 여부를 즉시 감지할 수 있도록 DOM 속성 주입
   document.documentElement.setAttribute('data-coupang-ext-installed', 'true');
-  document.documentElement.setAttribute('data-coupang-ext-version', '1.0.0');
+  document.documentElement.setAttribute('data-coupang-ext-version', '1.2.0');
 
   // 웹 페이지 -> 확장 프로그램 백그라운드 전달
   window.addEventListener('message', async (event) => {

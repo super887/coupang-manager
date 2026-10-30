@@ -170,7 +170,7 @@
     return exp.includes(det) || det.includes(exp);
   }
 
-  // 상품명 정규화 및 부분 일치 매칭
+  // 상품명 정규화 및 부분 일치 매칭 (쉼표 뒤 옵션명 분리 지원)
   function normalizeText(str) {
     return String(str || '')
       .toLowerCase()
@@ -178,25 +178,54 @@
   }
 
   function isProductNameMatch(webProductName, cardText) {
-    const normWeb = normalizeText(webProductName);
-    const normCard = normalizeText(cardText);
-    if (!normWeb || !normCard) return false;
+    const rawWeb = String(webProductName || '').trim();
+    const rawCard = String(cardText || '').trim();
+    if (!rawWeb || !rawCard) return false;
 
-    // 1. 띄어쓰기/특수문자 무시 부분 일치
-    if (normCard.includes(normWeb) || (normWeb.length >= 6 && normWeb.includes(normCard) && normCard.length >= 6)) {
+    // [개선] 쉼표(,)가 포함된 경우 옵션 제외하고 쉼표 앞의 핵심 상품명 우선 추출
+    // 예: "젖산마그네슘 100정, 2개입" -> "젖산마그네슘 100정"
+    const commaParts = rawWeb.split(/[,，]/);
+    const coreName = commaParts[0].trim();
+
+    const normFullWeb = normalizeText(rawWeb);
+    const normCoreWeb = normalizeText(coreName);
+    const normCard = normalizeText(rawCard);
+    if (!normCard) return false;
+
+    // 1. 쉼표(,) 앞의 핵심 상품명으로 우선 일치 검사
+    if (commaParts.length > 1 && normCoreWeb.length >= 2) {
+      if (normCard.includes(normCoreWeb) || (normCoreWeb.length >= 6 && normCoreWeb.includes(normCard))) {
+        return true;
+      }
+      // 핵심 상품명의 단어 토큰 매칭
+      const coreTokens = coreName
+        .replace(/[\[\]\(\)\{\},.\/\\~!\-_+*]+/g, ' ')
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2);
+      if (coreTokens.length >= 2) {
+        const matched = coreTokens.filter((t) => normCard.includes(normalizeText(t)));
+        if (matched.length >= Math.ceil(coreTokens.length * 0.8)) {
+          return true;
+        }
+      }
+    }
+
+    // 2. 전체 상품명 띄어쓰기/특수문자 무시 부분 일치
+    if (normFullWeb && (normCard.includes(normFullWeb) || (normFullWeb.length >= 6 && normFullWeb.includes(normCard) && normCard.length >= 6))) {
       return true;
     }
 
-    // 2. 단어 토큰 매칭 (웹 상품명의 주요 단어들이 카드 텍스트에 모두 포함되는지)
-    const tokens = String(webProductName || '')
+    // 3. 전체 상품명 단어 토큰 매칭 (웹 상품명의 주요 단어들이 카드 텍스트에 모두 포함되는지)
+    const fullTokens = rawWeb
       .replace(/[\[\]\(\)\{\},.\/\\~!\-_+*]+/g, ' ')
       .split(/\s+/)
       .map((t) => t.trim())
       .filter((t) => t.length >= 2);
 
-    if (tokens.length >= 2) {
-      const matchedTokens = tokens.filter((t) => normCard.includes(normalizeText(t)));
-      if (matchedTokens.length === tokens.length) {
+    if (fullTokens.length >= 2) {
+      const matchedTokens = fullTokens.filter((t) => normCard.includes(normalizeText(t)));
+      if (matchedTokens.length === fullTokens.length) {
         return true;
       }
     }
@@ -315,8 +344,10 @@
     }
 
     const maxScrolls = 15;
+    const searchTargetName = (task.productName || '').split(/[,，]/)[0].trim() || task.productName;
+
     for (let attempt = 1; attempt <= maxScrolls; attempt++) {
-      await reportProgress(`상품 찾는 중... (${attempt}/${maxScrolls}) "${task.productName.slice(0, 18)}"`);
+      await reportProgress(`상품 찾는 중... (${attempt}/${maxScrolls}) "${searchTargetName.slice(0, 18)}"`);
 
       // 화면 내 모든 "리뷰 작성하기" 버튼 수집
       const writeButtons = Array.from(
@@ -698,6 +729,8 @@
         croppedDataUrl,
         accountHolder: task.accountHolder,
         productName: task.productName,
+        purchaseDate: task.purchaseDate,
+        chatRoomName: task.chatRoomName,
         detectedAccountName: detectedName,
       });
       await sleep(600);
