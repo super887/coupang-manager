@@ -1,41 +1,47 @@
 // 쿠팡 마이페이지(my.coupang.com) 자동 리뷰 작성 및 인증 영역 캡처 스크립트
 
 (function () {
+  // 최상위 윈도우에서만 실행 (iframe 중복 실행 원천 차단)
+  if (window !== window.top) return;
   if (window.__COUPANG_MANAGER_CONTENT_SCRIPT__) return;
   window.__COUPANG_MANAGER_CONTENT_SCRIPT__ = true;
 
   let isRunningStage = false;
+  let hasClickedSubmitOnThisPage = false;
   let bannerEl = null;
   let lastInterceptedAlert = '';
 
-  // 쿠팡 페이지의 native window.alert/confirm 블로킹 방지 인라인 주입
-  try {
-    const s = document.createElement('script');
-    s.textContent = `(${function () {
-      if (window.__COUPANG_ALERT_INTERCEPTOR__) return;
-      window.__COUPANG_ALERT_INTERCEPTOR__ = true;
-      window.alert = function (msg) {
-        console.log('[쿠팡매니저] window.alert 자동 수락:', msg);
-        try {
-          window.dispatchEvent(
-            new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'alert', message: String(msg || '') } })
-          );
-        } catch (_) {}
-        return true;
-      };
-      window.confirm = function (msg) {
-        console.log('[쿠팡매니저] window.confirm 자동 승인:', msg);
-        try {
-          window.dispatchEvent(
-            new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'confirm', message: String(msg || '') } })
-          );
-        } catch (_) {}
-        return true;
-      };
-    }.toString()})();`;
-    (document.head || document.documentElement).appendChild(s);
-    s.remove();
-  } catch (_) {}
+  // 쿠팡 페이지의 native window.alert/confirm 블로킹 방지 MAIN 컨텍스트 인라인 주입
+  function injectMainAlertOverride() {
+    try {
+      const s = document.createElement('script');
+      s.textContent = `(${function () {
+        window.__COUPANG_ALERT_INTERCEPTOR__ = true;
+        window.alert = function (msg) {
+          console.log('[쿠팡매니저 MAIN] window.alert 자동 수락:', msg);
+          try {
+            window.dispatchEvent(
+              new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'alert', message: String(msg || '') } })
+            );
+          } catch (_) {}
+          return true;
+        };
+        window.confirm = function (msg) {
+          console.log('[쿠팡매니저 MAIN] window.confirm 자동 승인:', msg);
+          try {
+            window.dispatchEvent(
+              new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'confirm', message: String(msg || '') } })
+            );
+          } catch (_) {}
+          return true;
+        };
+      }.toString()})();`;
+      (document.head || document.documentElement).appendChild(s);
+      s.remove();
+    } catch (_) {}
+  }
+
+  injectMainAlertOverride();
 
   window.addEventListener('__COUPANG_MANAGER_ALERT__', (e) => {
     const msg = e?.detail?.message || '';
@@ -217,44 +223,51 @@
     }
   }
 
-  // DOM 및 모든 iframe 내부의 [확인], [닫기] 팝업 버튼 탐색 헬퍼
+  // 확인 모달 팝업의 [확인] 버튼 정밀 탐색 헬퍼 (푸터/헤더 잘못 클릭 원천 방지)
   function findActiveConfirmButtons(excludeEl) {
-    const results = [];
+    // 1순위: '등록되었습니다', '감사합니다', '이미 상품평' 등의 텍스트를 포함하는 모달/레이어 내부의 [확인] 버튼
+    const allLayers = Array.from(
+      document.querySelectorAll(
+        'div, section, article, [role="dialog"], [class*="modal"], [class*="popup"], [class*="dialog"], [class*="layer"], [class*="alert"]'
+      )
+    ).filter((box) => {
+      if (box.offsetParent === null) return false;
+      const t = box.innerText || '';
+      return (
+        t.includes('등록되었습니다') ||
+        t.includes('도움이 될 거예요') ||
+        t.includes('감사합니다') ||
+        t.includes('상품평을 작성') ||
+        t.includes('이미 작성')
+      );
+    });
 
-    function searchInDocument(doc) {
-      if (!doc) return;
-      try {
-        const candidates = Array.from(
-          doc.querySelectorAll(
-            'button, a, input[type="button"], input[type="submit"], [role="button"], span, div, em, p'
-          )
-        );
+    for (const box of allLayers) {
+      const candidates = Array.from(
+        box.querySelectorAll('button, a, input[type="button"], div[role="button"], span, em')
+      ).filter((el) => {
+        if (el === excludeEl || el.offsetParent === null) return false;
+        const txt = (el.innerText || el.value || '').trim();
+        return txt === '확인';
+      });
 
-        for (const el of candidates) {
-          if (el === excludeEl) continue;
-          if (el.offsetParent === null) continue; // 숨겨진 요소 제외
-
-          const text = (el.innerText || el.value || el.textContent || '').trim();
-          // "확인" 단독 또는 포함 버튼 (자식 태그가 너무 많은 큰 래퍼 박스는 제외)
-          if ((text === '확인' || text.startsWith('확인') || text === '닫기') && el.children.length <= 2) {
-            results.push(el);
-          }
-        }
-
-        // 페이지 내부 iframe들까지 탐색
-        const iframes = Array.from(doc.querySelectorAll('iframe'));
-        for (const f of iframes) {
-          try {
-            if (f.contentDocument) {
-              searchInDocument(f.contentDocument);
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
+      if (candidates.length > 0) {
+        return candidates;
+      }
     }
 
-    searchInDocument(document);
-    return results;
+    // 2순위: 화면 전체에서 정확히 '확인' 텍스트를 가진 단독 버튼 (단, footer, header, nav 내부 제외)
+    const exactConfirms = Array.from(
+      document.querySelectorAll('button, a, input[type="button"], input[type="submit"], [role="button"]')
+    ).filter((el) => {
+      if (el === excludeEl || el.offsetParent === null) return false;
+      // footer, header, gnb 등 내부 요소는 무조건 배제 (예: 사업자정보 확인 > 등)
+      if (el.closest('footer, header, nav, #footer, .footer, #header, .gnb')) return false;
+      const txt = (el.innerText || el.value || '').trim();
+      return txt === '확인';
+    });
+
+    return exactConfirms;
   }
 
   // [Stage 1] 리뷰 작성 대기 목록에서 상품 탐색 (무한 스크롤 최대 15회)
@@ -333,10 +346,15 @@
 
           triggerClick(btn);
 
-          // SPA 전환 대비: 페이지 리로드가 일어나지 않더라도 1초 후 폼 진입 체크
-          await sleep(1000);
-          isRunningStage = false;
-          await checkAndRunTask();
+          // SPA 전환 또는 페이지 이동 대기 (중복 checkAndRunTask 발화 방지)
+          for (let w = 0; w < 10; w++) {
+            await sleep(300);
+            if (location.href.includes('register') || document.body.innerText.includes('상품 품질 리뷰')) {
+              isRunningStage = false;
+              await checkAndRunTask();
+              return;
+            }
+          }
           return;
         }
       }
@@ -411,6 +429,15 @@
 
   // [Stage 2] 상품 품질 리뷰 폼 작성 (별점 5점 + 리뷰타입별 분기 + 등록하기 클릭)
   async function executeFillFormStage(task) {
+    if (hasClickedSubmitOnThisPage) {
+      console.log('[쿠팡매니저] 이미 등록하기가 실행되었습니다.');
+      return;
+    }
+
+    // 중복 실행 및 재진입을 원천 차단하기 위해 스토리지 상태를 즉시 다음 단계로 잠금
+    const nextTask = { ...task, stage: 'CAPTURE_WROTE_REVIEW' };
+    await chrome.storage.local.set({ activeReviewTask: nextTask });
+
     await reportProgress('리뷰 작성 폼 로딩 대기 중...');
 
     // 최대 10초 동안 폼(등록하기 버튼 또는 textarea) 등장 대기
@@ -429,6 +456,11 @@
 
     if (!submitBtn) {
       await failTask('쿠팡 리뷰 작성 폼([등록하기] 버튼)을 찾지 못했습니다.');
+      return;
+    }
+
+    if (submitBtn.dataset.cpSubmitted === 'true') {
+      console.log('[쿠팡매니저] 버튼이 이미 제출 처리되었습니다.');
       return;
     }
 
@@ -464,12 +496,21 @@
 
     // [합의 사항] 한줄 요약 칸은 입력하지 않고 빈칸 유지!
 
-    // 다음 단계(CAPTURE_WROTE_REVIEW)로 상태 전환
-    const nextTask = { ...task, stage: 'CAPTURE_WROTE_REVIEW' };
-    await chrome.storage.local.set({ activeReviewTask: nextTask });
+    // [등록하기] 중복 클릭 방지 락 걸기
+    hasClickedSubmitOnThisPage = true;
+    submitBtn.dataset.cpSubmitted = 'true';
+    submitBtn.style.pointerEvents = 'none';
 
-    // [등록하기] 딜레이 없이 즉시 1회 단독 클릭
-    await reportProgress('리뷰 [등록하기] 클릭 중...');
+    // alert 가로채기 사전 보강 (백그라운드 스크립팅 + MAIN 인라인 주입)
+    try {
+      await chrome.runtime.sendMessage({ type: 'ENSURE_ALERT_OVERRIDE' });
+    } catch (_) {}
+    injectMainAlertOverride();
+
+    await sleep(250);
+
+    // [등록하기] 단 1회 직접 클릭
+    await reportProgress('리뷰 [등록하기] 클릭...');
     submitBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
     await sleep(150);
 
@@ -486,7 +527,7 @@
     let confirmClicks = 0;
     let lastActionTime = Date.now();
 
-    for (let c = 0; c < 30; c++) {
+    for (let c = 0; c < 35; c++) {
       await sleep(350);
 
       // 1. 이미 작성한 리뷰 목록으로 넘어갔다면 루프 종료
@@ -497,13 +538,13 @@
         break;
       }
 
-      // 2. 화면 및 iframe 내에 떠 있는 확인 모달 버튼 탐색 ("확인" 또는 "닫기")
+      // 2. 화면 내에 떠 있는 확인 모달 버튼 탐색 ("확인")
       const confirmButtons = findActiveConfirmButtons(submitBtn);
 
       if (confirmButtons.length > 0) {
         confirmClicks++;
         lastActionTime = Date.now();
-        const targetBtn = confirmButtons[confirmButtons.length - 1]; // 가장 전면에 뜬 최상위 버튼
+        const targetBtn = confirmButtons[0]; // 1순위 모달 내부 확인 버튼
         const btnText = (targetBtn.innerText || targetBtn.value || '').trim();
         await reportProgress(`알림 팝업 [${btnText || '확인'}] 클릭 (${confirmClicks}회)...`);
         await sleep(150);
@@ -574,15 +615,10 @@
     let targetLi = null;
 
     for (let i = 0; i < 24; i++) {
-      // 확인 팝업이나 모달 버튼이 떠 있으면 눌러주기
-      const confirmBtns = Array.from(document.querySelectorAll('button, a')).filter((el) => {
-        const t = (el.innerText || '').trim();
-        return (t === '확인' || t === '닫기') && el.offsetParent !== null;
-      });
+      // 확인 팝업이나 모달 버튼이 여전히 떠 있으면 눌러주기
+      const confirmBtns = findActiveConfirmButtons();
       if (confirmBtns.length > 0 && !document.querySelector('li.my-review__wrote__list, li.my-review__wrote_list')) {
-        if (typeof confirmBtns[0].click === 'function') {
-          confirmBtns[0].click();
-        }
+        triggerClick(confirmBtns[0]);
         await sleep(400);
       }
 

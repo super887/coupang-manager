@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쿠팡매니저 자동 리뷰 & 인증 캡처",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "쿠팡매니저 웹과 연동하여 다계정 리뷰 자동 작성 및 작성 완료 영역(li.my-review__wrote__list) 자동 캡처/저장을 수행합니다.",
   "permissions": [
     "storage",
@@ -67,9 +67,7 @@
         "https://login.coupang.com/*"
       ],
       "js": ["content-coupang.js"],
-      "run_at": "document_idle",
-      "all_frames": true,
-      "match_about_blank": true
+      "run_at": "document_idle"
     }
   ]
 }

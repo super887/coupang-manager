@@ -68,6 +68,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      const task = {
+        requestId: payload.requestId || `req-${Date.now()}`,
+        purchaseId: payload.purchaseId,
+        webTabId,
+        webWindowId,
+        accountHolder: targetAccount,
+        productName: (payload.productName || '').trim(),
+        reviewType,
+        reviewText: (payload.reviewText || '').trim(),
+        stage: 'FIND_PRODUCT',
+        startedAt: Date.now(),
+      };
+
+      // 스토리지에 먼저 태스크를 기록하여 탭 전환/로드 시 레이스 컨디션 방지
+      await chrome.storage.local.set({ activeReviewTask: task });
+
       // 기존 쿠팡 탭 탐색 또는 새 탭 생성
       let coupangTab = null;
       const existingTabs = await chrome.tabs.query({
@@ -88,22 +104,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       }
 
-      const task = {
-        requestId: payload.requestId || `req-${Date.now()}`,
-        purchaseId: payload.purchaseId,
-        webTabId,
-        webWindowId,
-        coupangTabId: coupangTab.id,
-        accountHolder: targetAccount,
-        productName: (payload.productName || '').trim(),
-        reviewType,
-        reviewText: (payload.reviewText || '').trim(),
-        stage: 'FIND_PRODUCT',
-        startedAt: Date.now(),
-      };
-
+      task.coupangTabId = coupangTab.id;
       await chrome.storage.local.set({ activeReviewTask: task });
+
+      // MAIN world alert/confirm 무조건 가로채기 사전 주입
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: coupangTab.id, allFrames: true },
+          world: 'MAIN',
+          injectImmediately: true,
+          func: () => {
+            window.alert = (m) => {
+              console.log('[쿠팡매니저 MAIN override] alert 자동 통과:', m);
+              try {
+                window.dispatchEvent(
+                  new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { message: String(m || '') } })
+                );
+              } catch (_) {}
+              return true;
+            };
+            window.confirm = (m) => {
+              console.log('[쿠팡매니저 MAIN override] confirm 자동 승인:', m);
+              return true;
+            };
+          },
+        });
+      } catch (_) {}
+
       sendResponse({ started: true, coupangTabId: coupangTab.id });
+    })();
+    return true;
+  }
+
+  // 2-1. MAIN 월드 alert 오버라이드 보강 요청
+  if (message.type === 'ENSURE_ALERT_OVERRIDE') {
+    (async () => {
+      const tabId = sender.tab?.id;
+      if (tabId) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            world: 'MAIN',
+            injectImmediately: true,
+            func: () => {
+              window.alert = (m) => {
+                console.log('[쿠팡매니저 MAIN override] alert 즉시 자동 수락:', m);
+                try {
+                  window.dispatchEvent(
+                    new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { message: String(m || '') } })
+                  );
+                } catch (_) {}
+                return true;
+              };
+              window.confirm = (m) => {
+                console.log('[쿠팡매니저 MAIN override] confirm 즉시 자동 승인:', m);
+                return true;
+              };
+            },
+          });
+        } catch (_) {}
+      }
+      sendResponse({ ok: true });
     })();
     return true;
   }
