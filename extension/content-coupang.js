@@ -198,22 +198,63 @@
     return false;
   }
 
-  // 마우스 클릭 이벤트 시뮬레이션
+  // 안전한 단일 클릭 실행 (이벤트 중복 발화 방지)
   function triggerClick(el) {
     if (!el) return;
-    const events = ['mouseover', 'mouseenter', 'mousedown', 'mouseup', 'click'];
-    for (const evType of events) {
+    try {
+      el.focus();
+    } catch (_) {}
+    if (typeof el.click === 'function') {
+      el.click();
+    } else {
       el.dispatchEvent(
-        new MouseEvent(evType, {
+        new MouseEvent('click', {
           bubbles: true,
           cancelable: true,
           view: window,
         })
       );
     }
-    if (typeof el.click === 'function') {
-      el.click();
+  }
+
+  // DOM 및 모든 iframe 내부의 [확인], [닫기] 팝업 버튼 탐색 헬퍼
+  function findActiveConfirmButtons(excludeEl) {
+    const results = [];
+
+    function searchInDocument(doc) {
+      if (!doc) return;
+      try {
+        const candidates = Array.from(
+          doc.querySelectorAll(
+            'button, a, input[type="button"], input[type="submit"], [role="button"], span, div, em, p'
+          )
+        );
+
+        for (const el of candidates) {
+          if (el === excludeEl) continue;
+          if (el.offsetParent === null) continue; // 숨겨진 요소 제외
+
+          const text = (el.innerText || el.value || el.textContent || '').trim();
+          // "확인" 단독 또는 포함 버튼 (자식 태그가 너무 많은 큰 래퍼 박스는 제외)
+          if ((text === '확인' || text.startsWith('확인') || text === '닫기') && el.children.length <= 2) {
+            results.push(el);
+          }
+        }
+
+        // 페이지 내부 iframe들까지 탐색
+        const iframes = Array.from(doc.querySelectorAll('iframe'));
+        for (const f of iframes) {
+          try {
+            if (f.contentDocument) {
+              searchInDocument(f.contentDocument);
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
     }
+
+    searchInDocument(document);
+    return results;
   }
 
   // [Stage 1] 리뷰 작성 대기 목록에서 상품 탐색 (무한 스크롤 최대 15회)
@@ -445,7 +486,7 @@
     let confirmClicks = 0;
     let lastActionTime = Date.now();
 
-    for (let c = 0; c < 24; c++) {
+    for (let c = 0; c < 30; c++) {
       await sleep(350);
 
       // 1. 이미 작성한 리뷰 목록으로 넘어갔다면 루프 종료
@@ -456,21 +497,17 @@
         break;
       }
 
-      // 2. 화면에 떠 있는 확인 모달 버튼 탐색 ("확인" 또는 "닫기")
-      const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-      const confirmBtn = allButtons.find((el) => {
-        const text = (el.innerText || '').trim();
-        return (text === '확인' || text.includes('확인') || text === '닫기') && el !== submitBtn && el.offsetParent !== null;
-      });
+      // 2. 화면 및 iframe 내에 떠 있는 확인 모달 버튼 탐색 ("확인" 또는 "닫기")
+      const confirmButtons = findActiveConfirmButtons(submitBtn);
 
-      if (confirmBtn) {
+      if (confirmButtons.length > 0) {
         confirmClicks++;
         lastActionTime = Date.now();
-        await reportProgress(`알림 팝업 [확인] 클릭 (${confirmClicks}회)...`);
+        const targetBtn = confirmButtons[confirmButtons.length - 1]; // 가장 전면에 뜬 최상위 버튼
+        const btnText = (targetBtn.innerText || targetBtn.value || '').trim();
+        await reportProgress(`알림 팝업 [${btnText || '확인'}] 클릭 (${confirmClicks}회)...`);
         await sleep(150);
-        if (typeof confirmBtn.click === 'function') {
-          confirmBtn.click();
-        }
+        triggerClick(targetBtn);
         await sleep(400);
         // 루프를 바로 중단하지 않고, 뒤이어 뜰 수 있는 2번째 확인창까지 계속 감시
         continue;
