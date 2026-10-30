@@ -45,7 +45,7 @@ try {
     Write-Host "  [Next Steps]" -ForegroundColor Yellow
     Write-Host "  1. Open chrome://extensions in Chrome"
     Write-Host "  2. Click the Refresh (Reload) button on Coupang Manager card"
-    Write-Host "  3. Check that the version is 1.2.0"
+    Write-Host "  3. Check that the version is 1.2.1"
     Write-Host "===================================================" -ForegroundColor Cyan
 }
 catch {

@@ -11,38 +11,7 @@
   let bannerEl = null;
   let lastInterceptedAlert = '';
 
-  // 쿠팡 페이지의 native window.alert/confirm 블로킹 방지 MAIN 컨텍스트 인라인 주입
-  function injectMainAlertOverride() {
-    try {
-      const s = document.createElement('script');
-      s.textContent = `(${function () {
-        window.__COUPANG_ALERT_INTERCEPTOR__ = true;
-        window.alert = function (msg) {
-          console.log('[쿠팡매니저 MAIN] window.alert 자동 수락:', msg);
-          try {
-            window.dispatchEvent(
-              new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'alert', message: String(msg || '') } })
-            );
-          } catch (_) {}
-          return true;
-        };
-        window.confirm = function (msg) {
-          console.log('[쿠팡매니저 MAIN] window.confirm 자동 승인:', msg);
-          try {
-            window.dispatchEvent(
-              new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'confirm', message: String(msg || '') } })
-            );
-          } catch (_) {}
-          return true;
-        };
-      }.toString()})();`;
-      (document.head || document.documentElement).appendChild(s);
-      s.remove();
-    } catch (_) {}
-  }
-
-  injectMainAlertOverride();
-
+  // inject-page.js (MAIN 월드)에서 발생한 alert/confirm 이벤트 수신
   window.addEventListener('__COUPANG_MANAGER_ALERT__', (e) => {
     const msg = e?.detail?.message || '';
     lastInterceptedAlert = msg;
@@ -532,11 +501,10 @@
     submitBtn.dataset.cpSubmitted = 'true';
     submitBtn.style.pointerEvents = 'none';
 
-    // alert 가로채기 사전 보강 (백그라운드 스크립팅 + MAIN 인라인 주입)
+    // alert 가로채기 사전 보강 (백그라운드 스크립팅 API를 통해 CSP 제약 없이 MAIN 월드 주입)
     try {
       await chrome.runtime.sendMessage({ type: 'ENSURE_ALERT_OVERRIDE' });
     } catch (_) {}
-    injectMainAlertOverride();
 
     await sleep(250);
 
