@@ -6,6 +6,42 @@
 
   let isRunningStage = false;
   let bannerEl = null;
+  let lastInterceptedAlert = '';
+
+  // 쿠팡 페이지의 native window.alert/confirm 블로킹 방지 인라인 주입
+  try {
+    const s = document.createElement('script');
+    s.textContent = `(${function () {
+      if (window.__COUPANG_ALERT_INTERCEPTOR__) return;
+      window.__COUPANG_ALERT_INTERCEPTOR__ = true;
+      window.alert = function (msg) {
+        console.log('[쿠팡매니저] window.alert 자동 수락:', msg);
+        try {
+          window.dispatchEvent(
+            new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'alert', message: String(msg || '') } })
+          );
+        } catch (_) {}
+        return true;
+      };
+      window.confirm = function (msg) {
+        console.log('[쿠팡매니저] window.confirm 자동 승인:', msg);
+        try {
+          window.dispatchEvent(
+            new CustomEvent('__COUPANG_MANAGER_ALERT__', { detail: { type: 'confirm', message: String(msg || '') } })
+          );
+        } catch (_) {}
+        return true;
+      };
+    }.toString()})();`;
+    (document.head || document.documentElement).appendChild(s);
+    s.remove();
+  } catch (_) {}
+
+  window.addEventListener('__COUPANG_MANAGER_ALERT__', (e) => {
+    const msg = e?.detail?.message || '';
+    lastInterceptedAlert = msg;
+    console.log('[쿠팡매니저 ContentScript] 감지된 알림창:', msg);
+  });
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -391,47 +427,71 @@
     const nextTask = { ...task, stage: 'CAPTURE_WROTE_REVIEW' };
     await chrome.storage.local.set({ activeReviewTask: nextTask });
 
-    await reportProgress('리뷰 [등록하기] 1회 클릭 중...');
+    // [등록하기] 딜레이 없이 즉시 1회 단독 클릭
+    await reportProgress('리뷰 [등록하기] 클릭 중...');
     submitBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(400);
+    await sleep(150);
 
-    // 중복 클릭 없이 정확히 1회만 단독 클릭
     if (typeof submitBtn.click === 'function') {
       submitBtn.click();
     }
+    try {
+      submitBtn.disabled = true;
+    } catch (_) {}
 
-    await reportProgress('등록 완료 팝업 확인 대기 중...');
+    await reportProgress('등록 확인 팝업 대기 중...');
 
-    // "작성하신 리뷰가 등록되었습니다" 팝업 모달의 [확인] 버튼 대기 및 클릭
-    for (let c = 0; c < 20; c++) {
-      await sleep(400);
+    // 연속 알림 팝업("이미 상품평을 작성하였습니다" -> "작성하신 리뷰가 등록되었습니다" 등) 모두 순차 처리
+    let confirmClicks = 0;
+    let lastActionTime = Date.now();
 
-      const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-      const confirmBtn = allButtons.find((el) => {
-        const text = (el.innerText || '').trim();
-        return (text === '확인' || text.includes('확인')) && el !== submitBtn && el.offsetParent !== null;
-      });
+    for (let c = 0; c < 24; c++) {
+      await sleep(350);
 
-      if (confirmBtn) {
-        await reportProgress('등록 완료 [확인] 버튼 클릭 중...');
-        await sleep(350);
-        if (typeof confirmBtn.click === 'function') {
-          confirmBtn.click();
-        }
-        await sleep(1000);
-        break;
-      }
-
-      // 이미 작성한 리뷰 목록으로 바로 넘어간 경우
+      // 1. 이미 작성한 리뷰 목록으로 넘어갔다면 루프 종료
       if (
         location.href.includes('wroteReviews') ||
         document.querySelector('li.my-review__wrote__list, li.my-review__wrote_list')
       ) {
         break;
       }
+
+      // 2. 화면에 떠 있는 확인 모달 버튼 탐색 ("확인" 또는 "닫기")
+      const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+      const confirmBtn = allButtons.find((el) => {
+        const text = (el.innerText || '').trim();
+        return (text === '확인' || text.includes('확인') || text === '닫기') && el !== submitBtn && el.offsetParent !== null;
+      });
+
+      if (confirmBtn) {
+        confirmClicks++;
+        lastActionTime = Date.now();
+        await reportProgress(`알림 팝업 [확인] 클릭 (${confirmClicks}회)...`);
+        await sleep(150);
+        if (typeof confirmBtn.click === 'function') {
+          confirmBtn.click();
+        }
+        await sleep(400);
+        // 루프를 바로 중단하지 않고, 뒤이어 뜰 수 있는 2번째 확인창까지 계속 감시
+        continue;
+      }
+
+      // 3. 팝업을 클릭했거나 alert가 가로채진 후 쿠팡이 자동 이동하지 않고 멈춰있다면 직접 이동
+      if ((confirmClicks > 0 || lastInterceptedAlert) && Date.now() - lastActionTime > 1500 && location.href.includes('register')) {
+        await reportProgress('확인 완료! [작성한 리뷰] 페이지로 자동 이동합니다...');
+        location.href = 'https://my.coupang.com/productreview/wroteReviews';
+        return;
+      }
     }
 
-    await sleep(800);
+    // 만약 여전히 register 폼 페이지에 남아있다면 작성한 리뷰 탭으로 강제 이동
+    if (location.href.includes('register')) {
+      await reportProgress('[작성한 리뷰] 페이지로 이동합니다...');
+      location.href = 'https://my.coupang.com/productreview/wroteReviews';
+      return;
+    }
+
+    await sleep(600);
     isRunningStage = false;
     await checkAndRunTask();
   }

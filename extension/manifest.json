@@ -53,6 +53,17 @@
         "https://www.coupang.com/*",
         "https://login.coupang.com/*"
       ],
+      "js": ["inject-page.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://my.coupang.com/*",
+        "https://mc.coupang.com/*",
+        "https://www.coupang.com/*",
+        "https://login.coupang.com/*"
+      ],
       "js": ["content-coupang.js"],
       "run_at": "document_idle"
     }
