@@ -102,29 +102,64 @@ export async function getPaginatedPurchases({
   };
 }
 
-export async function addPurchase(defaultAccount: string = '') {
+export async function addPurchase(repeatCount: number = 1) {
   const session = await verifySession();
   if (!session?.userId) throw new Error('로그인이 필요합니다.');
+
+  // N번 추가 안전 범위 (1 ~ 30)
+  const safeRepeat = Math.min(30, Math.max(1, Math.floor(Number(repeatCount) || 1)));
 
   // 한국 표준시(KST) 오늘 날짜 사용
   const kstDate = todayKST();
 
-  const defaultData = {
+  // 로그인한 계정에 등록된 계정 정보(accountInfo) 조회 (등록순 정렬)
+  const registeredAccounts = await prisma.accountInfo.findMany({
+    where: { userId: session.userId },
+    select: { accountHolder: true, platform: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  // 등록된 계정이 있으면 해당 계정 목록 사용, 없으면 빈 계정 1개로 폴백
+  const accountTemplates =
+    registeredAccounts.length > 0
+      ? registeredAccounts.map((acc) => ({
+          accountHolder: acc.accountHolder || '',
+          platform: (acc.platform || '').trim() || '쿠팡',
+        }))
+      : [{ accountHolder: '', platform: '쿠팡' }];
+
+  // N번 반복하여 총 (등록된 계정 수 * N)개의 행 데이터 구성
+  // 예: 계정 [김수연, 이시온, 이현숙] & 2번 추가 -> [김수연, 이시온, 이현숙, 김수연, 이시온, 이현숙] (총 6행)
+  const expandedAccounts: { accountHolder: string; platform: string }[] = [];
+  for (let i = 0; i < safeRepeat; i++) {
+    for (const acc of accountTemplates) {
+      expandedAccounts.push(acc);
+    }
+  }
+
+  const totalRows = expandedAccounts.length;
+  const baseTime = Date.now();
+
+  // getPaginatedPurchases의 orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] 정렬 시
+  // 화면 위에서부터 아래로 정확히 [김수연 -> 이시온 -> 이현숙 -> ...] 순서로 표시되도록
+  // 각 행의 createdAt을 1ms 단위로 차등 부여
+  const rowsData = expandedAccounts.map((acc, idx) => ({
     userId: session.userId,
     purchaseDate: kstDate,
-    accountHolder: defaultAccount,
+    accountHolder: acc.accountHolder,
     productName: '',
     chatRoomName: '',
-    platform: '쿠팡',
+    platform: acc.platform,
     price: 0,
     reviewType: '(빈)텍스트',
     paybackName: '',
     contactOnBangpok: '',
-  };
+    createdAt: new Date(baseTime + (totalRows - 1 - idx)),
+  }));
 
-  // 5행을 순차 생성 대신 createManyAndReturn 으로 1번의 쿼리로 생성하여 속도 극대화
+  // createManyAndReturn 으로 1번의 쿼리로 일괄 생성하여 속도 극대화
   const newRows = await prisma.purchase.createManyAndReturn({
-    data: Array.from({ length: 5 }, () => defaultData),
+    data: rowsData,
   });
 
   return newRows;

@@ -90,6 +90,7 @@ export default function PurchaseTable({
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const cancelBulkRef = useRef(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [addCountInput, setAddCountInput] = useState<string>('1');
 
   // 🚀 크롬 확장 프로그램 연동 상태
   const [isExtInstalled, setIsExtInstalled] = useState(false);
@@ -743,12 +744,17 @@ export default function PurchaseTable({
     }
   };
 
-  const handleAddRow = async (e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleAddRow = async (e?: React.MouseEvent | React.KeyboardEvent) => {
+    if (e) e.preventDefault();
+    if (isAdding || isAutoRegistering) return;
+
+    const repeatCount = Math.min(30, Math.max(1, parseInt(addCountInput, 10) || 1));
+    setAddCountInput(String(repeatCount));
+
     setIsAdding(true);
     setHideSpinner(true);
     try {
-      const addedRows = await addPurchase();
+      const addedRows = await addPurchase(repeatCount);
 
       if (addedRows && Array.isArray(addedRows)) {
         setEditingRows((prev) => {
@@ -878,14 +884,51 @@ export default function PurchaseTable({
           >
             🗑️ 선택 삭제
           </button>
-          <button
-            type="button"
-            onClick={handleAddRow}
-            disabled={isAdding || isAutoRegistering}
-            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 w-[130px]"
-          >
-            {isAdding ? '⏳ 추가 중...' : '새 항목 5줄 추가'}
-          </button>
+          <div className="inline-flex items-center bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm overflow-hidden">
+            <button
+              type="button"
+              onClick={handleAddRow}
+              disabled={isAdding || isAutoRegistering}
+              className="pl-3 pr-1.5 py-2 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              새 항목
+            </button>
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={addCountInput}
+              onChange={(e) => setAddCountInput(e.target.value)}
+              onBlur={() => {
+                const parsed = Math.min(30, Math.max(1, parseInt(addCountInput, 10) || 1));
+                setAddCountInput(String(parsed));
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddRow(e);
+                }
+              }}
+              disabled={isAdding || isAutoRegistering}
+              className="w-12 py-1 px-1 text-center text-gray-900 bg-white rounded font-bold text-sm outline-none focus:ring-2 focus:ring-green-300"
+              title="추가할 횟수 입력 (1회당 등록된 계정 수만큼 행 추가)"
+            />
+            <button
+              type="button"
+              onClick={handleAddRow}
+              disabled={isAdding || isAutoRegistering}
+              className="pl-1.5 pr-3 py-2 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              {isAdding
+                ? '⏳ 추가 중...'
+                : `번 추가${
+                    safeAccounts.length > 0
+                      ? ` (${Math.max(1, parseInt(addCountInput, 10) || 1) * safeAccounts.length}줄)`
+                      : ''
+                  }`}
+            </button>
+          </div>
         </div>
       </div>
 
