@@ -36,8 +36,8 @@ ENCRYPTION_KEY="your-32-character-or-64-hex-master-encryption-key"
 ADMIN_ID="admin"
 ADMIN_PASSWORD="your-secure-admin-password"
 
-# Gemini AI 모델 (기본: gemini-2.5-flash)
-GEMINI_MODEL="gemini-2.5-flash"
+# Gemini AI 모델 (기본: gemini-3.5-flash-lite)
+GEMINI_MODEL="gemini-3.5-flash-lite"
 ```
 
 ---

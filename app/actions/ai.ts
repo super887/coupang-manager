@@ -6,7 +6,7 @@ import { decryptText } from '@/lib/crypto';
 import { cleanAndFormatAiReviews } from '@/lib/review-parser';
 
 // 지원 모델 상수 (Gemini Flash Lite 모델)
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
 export async function generateAiReview(purchaseId: string, productName: string) {
   const session = await verifySession();
