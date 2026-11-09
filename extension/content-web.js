@@ -5,7 +5,9 @@
 
   // 웹 페이지가 확장 프로그램 설치 여부를 즉시 감지할 수 있도록 DOM 속성 주입
   document.documentElement.setAttribute('data-coupang-ext-installed', 'true');
-  document.documentElement.setAttribute('data-coupang-ext-version', '1.2.1');
+  document.documentElement.setAttribute('data-coupang-ext-version', '1.3.0');
+
+  const pendingSurveyResolvers = new Map();
 
   // 웹 페이지 -> 확장 프로그램 백그라운드 전달
   window.addEventListener('message', async (event) => {
@@ -54,7 +56,7 @@
             '*'
           );
         }
-      } catch (err) {
+      } catch {
         window.postMessage(
           {
             type: 'CP_EXT_REVIEW_RESULT',
@@ -74,12 +76,22 @@
       } catch {
         // ignore
       }
+    } else if (type === 'CP_EXT_SURVEY_AI_RES') {
+      const reqId = payload?.surveyReqId;
+      if (reqId && pendingSurveyResolvers.has(reqId)) {
+        const resolve = pendingSurveyResolvers.get(reqId);
+        pendingSurveyResolvers.delete(reqId);
+        resolve({
+          success: Boolean(payload?.success),
+          selections: payload?.selections || {},
+        });
+      }
     }
   });
 
-  // 백그라운드 -> 웹 페이지 결과/진행상태 전달
-  chrome.runtime.onMessage.addListener((message) => {
-    if (!message || typeof message.type !== 'string') return;
+  // 백그라운드 -> 웹 페이지 결과/진행상태/AI설문 요청 전달
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || typeof message.type !== 'string') return false;
 
     if (message.type === 'REVIEW_TASK_RESULT') {
       window.postMessage(
@@ -89,7 +101,10 @@
         },
         '*'
       );
-    } else if (message.type === 'REVIEW_TASK_PROGRESS') {
+      return false;
+    }
+
+    if (message.type === 'REVIEW_TASK_PROGRESS') {
       window.postMessage(
         {
           type: 'CP_EXT_REVIEW_PROGRESS',
@@ -97,6 +112,37 @@
         },
         '*'
       );
+      return false;
     }
+
+    if (message.type === 'SELECT_SURVEY_OPTIONS_AI') {
+      const surveyReqId = `survey-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const timer = setTimeout(() => {
+        if (pendingSurveyResolvers.has(surveyReqId)) {
+          pendingSurveyResolvers.delete(surveyReqId);
+          sendResponse({ success: false, selections: {} });
+        }
+      }, 8500);
+
+      pendingSurveyResolvers.set(surveyReqId, (res) => {
+        clearTimeout(timer);
+        sendResponse(res);
+      });
+
+      window.postMessage(
+        {
+          type: 'CP_EXT_SURVEY_AI_REQ',
+          payload: {
+            surveyReqId,
+            productName: message.payload?.productName || '',
+            questions: message.payload?.questions || [],
+          },
+        },
+        '*'
+      );
+      return true;
+    }
+
+    return false;
   });
 })();

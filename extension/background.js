@@ -1,6 +1,6 @@
 // 쿠팡매니저 크롬 확장 프로그램 Service Worker (background.js)
 
-const COUPANG_REVIEW_WAIT_URL = 'https://my.coupang.com/productreview/reviewable';
+const COUPANG_ORDER_LIST_URL = 'https://mc.coupang.com/ssr/desktop/order/list';
 
 function sanitizeFilePart(str, maxLen = 85) {
   if (!str) return '';
@@ -40,7 +40,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 2. 자동 리뷰 작성 작업 시작
+  // 2. 자동 리뷰 작성 작업 시작 (주문목록 검색 진입 방식)
   if (message.type === 'START_REVIEW_TASK') {
     (async () => {
       const payload = message.payload || {};
@@ -79,14 +79,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chatRoomName: (payload.chatRoomName || '').trim(),
         reviewType,
         reviewText: (payload.reviewText || '').trim(),
-        stage: 'FIND_PRODUCT',
+        stage: 'SEARCH_ORDER_LIST',
+        searchAttempt: 0,
+        lastSearchedQuery: '',
         startedAt: Date.now(),
       };
 
       // 스토리지에 먼저 태스크를 기록하여 탭 전환/로드 시 레이스 컨디션 방지
       await chrome.storage.local.set({ activeReviewTask: task });
 
-      // 기존 쿠팡 탭 탐색 또는 새 탭 생성
+      // 기존 쿠팡 탭 탐색 또는 새 탭 생성 -> 주문목록(mc.coupang.com/ssr/desktop/order/list)으로 이동
       let coupangTab = null;
       const existingTabs = await chrome.tabs.query({
         windowId: webWindowId,
@@ -95,13 +97,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (existingTabs.length > 0) {
         coupangTab = await chrome.tabs.update(existingTabs[0].id, {
-          url: COUPANG_REVIEW_WAIT_URL,
+          url: COUPANG_ORDER_LIST_URL,
           active: true,
         });
       } else {
         coupangTab = await chrome.tabs.create({
           windowId: webWindowId,
-          url: COUPANG_REVIEW_WAIT_URL,
+          url: COUPANG_ORDER_LIST_URL,
           active: true,
         });
       }
@@ -167,6 +169,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } catch (_) {}
       }
       sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  // 2-2. 객관식 라디오 설문 애매한 문항 AI 선택 요청 중계 (쿠팡 탭 -> 웹 대시보드 탭)
+  if (message.type === 'ASK_AI_SURVEY_OPTIONS') {
+    (async () => {
+      try {
+        const { activeReviewTask } = await chrome.storage.local.get('activeReviewTask');
+        const webTabId = activeReviewTask?.webTabId;
+        if (!webTabId) {
+          sendResponse({ success: false, selections: {} });
+          return;
+        }
+
+        const res = await Promise.race([
+          chrome.tabs.sendMessage(webTabId, {
+            type: 'SELECT_SURVEY_OPTIONS_AI',
+            payload: {
+              productName: message.productName || '',
+              questions: message.questions || [],
+            },
+          }),
+          new Promise((r) => setTimeout(() => r({ success: false, selections: {} }), 9000)),
+        ]);
+
+        sendResponse(res || { success: false, selections: {} });
+      } catch {
+        sendResponse({ success: false, selections: {} });
+      }
     })();
     return true;
   }
@@ -244,7 +276,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sanitizeFilePart(message.productName || task?.productName || '리뷰인증', 80) ||
         '리뷰인증';
 
-      // 구매일 + 카톡방명 기반 하위 폴더 생성 (예: "2026-10-30 젖산마그네슘" 또는 "구매일 카톡방명")
+      // 구매일 + 카톡방명 기반 하위 폴더 생성 (예: "2026-10-30 젖산마그네슘")
       const rawDate = message.purchaseDate || task?.purchaseDate || '';
       const rawChatRoom = message.chatRoomName || task?.chatRoomName || '';
       const safeDate = sanitizeFilePart(rawDate, 30);
@@ -258,8 +290,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? `[${safeAccount}] ${safeProduct}.png`
           : `${safeProduct}.png`;
 
-      // 하위 폴더가 있으면 [기본폴더]/[구매일 카톡방명]/[계정주] 상품명.png 형태로 저장
-      // (기존 폴더가 이미 있으면 Chrome 다운로드 엔진이 해당 폴더 안에 그대로 저장)
       const fullPath = subFolder
         ? `${folder}/${subFolder}/${fileBaseName}`
         : `${folder}/${fileBaseName}`;
@@ -275,14 +305,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.remove('activeReviewTask');
 
         if (task?.webTabId) {
-          // 웹 대시보드 탭으로 완료 알림 전송
           await notifyWebTab(task.webTabId, 'REVIEW_TASK_RESULT', {
             requestId: task.requestId,
             purchaseId: task.purchaseId,
             success: true,
             fileName: fullPath,
           });
-          // 웹 탭으로 다시 포커스 이동
           try {
             await chrome.tabs.update(task.webTabId, { active: true });
           } catch {
@@ -307,7 +335,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 7. 작업 실패 처리
+  // 7. 주문목록 미검색/배송중/기작성 등으로 인한 스킵 처리 (완료 체크 없이 다음 상품 진행)
+  if (message.type === 'SKIP_REVIEW_TASK') {
+    (async () => {
+      const { activeReviewTask: task } = await chrome.storage.local.get('activeReviewTask');
+      await chrome.storage.local.remove('activeReviewTask');
+
+      if (task?.webTabId) {
+        await notifyWebTab(task.webTabId, 'REVIEW_TASK_RESULT', {
+          requestId: task.requestId,
+          purchaseId: task.purchaseId,
+          success: false,
+          skipped: true,
+          error: message.reason || '주문목록에 작성 가능한 리뷰가 없어 건너뜁니다.',
+        });
+        try {
+          await chrome.tabs.update(task.webTabId, { active: true });
+        } catch {
+          // ignore
+        }
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  // 8. 작업 실패 처리
   if (message.type === 'FAIL_REVIEW_TASK') {
     (async () => {
       const { activeReviewTask: task } = await chrome.storage.local.get('activeReviewTask');

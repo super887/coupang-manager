@@ -40,6 +40,16 @@ export function splitReviewCandidates(rawText: string | null | undefined): strin
   if (blocks.length < 2) {
     blocks = text.split(/\r?\n\s*\r?\n+/);
   }
+  // 단일 줄바꿈(\n)으로만 2~3개 리뷰가 구분된 경우 폴백 분리
+  if (blocks.length < 2) {
+    const lineBlocks = text
+      .split(/\r?\n+/)
+      .map((b) => b.trim())
+      .filter((b) => b.length >= 20);
+    if (lineBlocks.length >= 2) {
+      blocks = lineBlocks;
+    }
+  }
 
   const cleaned = blocks.map(cleanSingleReviewBlock).filter((b) => b.length > 0);
   return cleaned.length > 0 ? cleaned : [cleanSingleReviewBlock(text)];

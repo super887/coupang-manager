@@ -9,7 +9,7 @@ import {
   duplicatePurchase,
   getPaginatedPurchases,
 } from '@/app/actions/purchase';
-import { generateAiReview } from '@/app/actions/ai';
+import { generateAiReview, selectPositiveSurveyOptions } from '@/app/actions/ai';
 import { splitReviewCandidates, extractCleanReview } from '@/lib/review-parser';
 
 // 🛡️ 절대 안 터지는 안전 변환 함수들
@@ -191,10 +191,40 @@ export default function PurchaseTable({
           pendingExtResolverRef.current = null;
           resolve({
             success: Boolean(payload?.success),
+            skipped: Boolean(payload?.skipped),
             error: payload?.error,
             fileName: payload?.fileName,
           });
         }
+      } else if (type === 'CP_EXT_SURVEY_AI_REQ') {
+        const surveyReqId = payload?.surveyReqId;
+        (async () => {
+          try {
+            const aiRes = await selectPositiveSurveyOptions(
+              getStr(payload?.productName),
+              Array.isArray(payload?.questions) ? payload.questions : []
+            );
+            window.postMessage(
+              {
+                type: 'CP_EXT_SURVEY_AI_RES',
+                payload: {
+                  surveyReqId,
+                  success: aiRes.success,
+                  selections: aiRes.selections || {},
+                },
+              },
+              '*'
+            );
+          } catch {
+            window.postMessage(
+              {
+                type: 'CP_EXT_SURVEY_AI_RES',
+                payload: { surveyReqId, success: false, selections: {} },
+              },
+              '*'
+            );
+          }
+        })();
       }
     };
 
@@ -468,14 +498,27 @@ export default function PurchaseTable({
           };
         }
 
-        // 동일 상품명이 여러 행에 있을 경우 각 행마다 1번/2번/3번 스타일이 분산 선택되도록 계산
-        const sameProductRows = localData.filter(
-          (r) => getStr(r.productName).trim() === productName
-        );
-        const rowStyleIdx = Math.max(
-          0,
-          sameProductRows.findIndex((r) => r.id === row.id)
-        );
+        // 1순위: 등록된 계정 순서(최초 등록순: 1번 계정->0, 2번 계정->1, 3번 계정->2)로 고정 매칭
+        const normalizedHolder = accountHolder.replace(/\s+/g, '');
+        const accountIdx = normalizedHolder
+          ? safeAccounts.findIndex(
+              (a) => getStr(a?.accountHolder).replace(/\s+/g, '') === normalizedHolder
+            )
+          : -1;
+
+        let rowStyleIdx = 0;
+        if (accountIdx >= 0) {
+          rowStyleIdx = accountIdx;
+        } else {
+          // 폴백: 등록된 계정에 없는 이름인 경우 동일 상품 행 순서로 분산
+          const sameProductRows = localData.filter(
+            (r) => getStr(r.productName).trim() === productName
+          );
+          rowStyleIdx = Math.max(
+            0,
+            sameProductRows.findIndex((r) => r.id === row.id)
+          );
+        }
         cleanReviewText = extractCleanReview(rawReview, rowStyleIdx);
       }
 
@@ -514,7 +557,7 @@ export default function PurchaseTable({
         );
       });
     },
-    [localData]
+    [localData, safeAccounts]
   );
 
   // 🚀 단건 [자동등록] 버튼 핸들러
@@ -633,13 +676,16 @@ export default function PurchaseTable({
         failedItems.push(`• ${title.slice(0, 22)}: ${res.error || '실패'}`);
       }
 
-      // 다음 항목이 남아있고 취소되지 않았으면 3초 대기
+      // 다음 항목이 남아있고 취소되지 않았으면 대기 (스킵된 항목은 즉시 다음 상품 진행)
       if (i < selectedList.length - 1 && !cancelAutoRegRef.current) {
+        const waitMs = res.skipped ? 600 : 3000;
         setAutoRegState((prev) => ({
           ...prev,
-          stepText: '다음 항목 실행 전 3초 대기 중...',
+          stepText: res.skipped
+            ? '건너뜀 — 바로 다음 상품으로 이동 중...'
+            : '다음 항목 실행 전 3초 대기 중...',
         }));
-        await new Promise((r) => setTimeout(r, 3000));
+        await new Promise((r) => setTimeout(r, waitMs));
       }
     }
 

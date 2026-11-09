@@ -34,7 +34,7 @@ export default function AccountManager({ initialData }: { initialData: AccountIn
     try {
       const newAccount = await addAccount();
       // 서버에서 진짜 ID가 발급된 새 계정을 받아와서 즉시 화면 맨 위에 추가!
-      setLocalData(prev => [newAccount as unknown as AccountInfo, ...prev]);
+      setLocalData(prev => [...prev, newAccount as unknown as AccountInfo]);
     } catch (error) {
       console.error('추가 실패:', error);
       alert('계정 추가 중 오류가 발생했습니다.');
@@ -109,7 +109,7 @@ export default function AccountManager({ initialData }: { initialData: AccountIn
         {localData.length === 0 ? (
           <div className="text-center py-10 text-gray-400 text-sm">등록된 계정이 없습니다.</div>
         ) : (
-          localData.map((item) => {
+          localData.map((item, idx) => {
             const isEditing = editingIds.has(item.id);
             return (
               <div key={item.id} className={`p-4 rounded-xl border transition-all ${isEditing ? 'bg-yellow-50/30 border-blue-300 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm'}`}>
@@ -119,7 +119,10 @@ export default function AccountManager({ initialData }: { initialData: AccountIn
                     {isEditing ? (
                       <input type="text" value={item.accountHolder} onChange={(e) => handleLocalChange(item.id, 'accountHolder', e.target.value)} placeholder="계정주 이름 (예: 김수연)" className="p-1.5 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-base" />
                     ) : (
-                      <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">{item.accountHolder || '이름 없음'}</span>
+                      <>
+                        <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-xs font-extrabold">{idx + 1}번 리뷰</span>
+                        <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">{item.accountHolder || '이름 없음'}</span>
+                      </>
                     )}
                   </h3>
                   <div className="flex gap-2">

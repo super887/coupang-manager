@@ -26,7 +26,7 @@ export async function getAccounts() {
   if (!session?.userId) return [];
   return await prisma.accountInfo.findMany({
     where: { userId: session.userId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' },
   });
 }
 

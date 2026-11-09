@@ -101,3 +101,109 @@ export async function generateAiReview(purchaseId: string, productName: string) 
 
   return formattedReview;
 }
+
+
+export interface SurveyQuestionItem {
+  id: number;
+  question: string;
+  options: string[];
+}
+
+// 객관식 설문 라디오 항목 중 애매한 문항에 대해 가장 긍정적·이상적인 선택지 인덱스를 AI로 판별
+export async function selectPositiveSurveyOptions(
+  productName: string,
+  questions: SurveyQuestionItem[]
+): Promise<{ success: boolean; selections?: Record<number, number> }> {
+  try {
+    const session = await verifySession();
+    if (!session?.userId) return { success: false };
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return { success: false };
+    }
+
+    const safeQuestions = questions
+      .slice(0, 15)
+      .filter((q) => Array.isArray(q.options) && q.options.length > 0);
+    if (safeQuestions.length === 0) return { success: false };
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { geminiApiKey: true },
+    });
+    if (!user?.geminiApiKey) return { success: false };
+
+    const plainApiKey = decryptText(user.geminiApiKey);
+    if (!plainApiKey) return { success: false };
+
+    const promptText = [
+      '다음은 쿠팡 상품에 대해 별점 5점 만점의 긍정 리뷰를 작성할 때 선택해야 하는 객관식 설문 문항 목록입니다.',
+      `상품명: ${(productName || '').trim() || '(상품명 없음)'}`,
+      '',
+      '각 문항별로 상품 특성과 질문 의도에 비추어 만족한 구매자가 고를 가장 긍정적이고 이상적인 보기의 번호(0부터 시작하는 정수 인덱스)를 선택하세요.',
+      '(주의: 사이즈/핏/길이 질문이면 극단적인 값 대신 "정사이즈예요/잘 맞아요/적당해요"를 선택하고, 품질/성능/만족도 질문이면 가장 긍정적인 보기를 선택하세요.)',
+      '',
+      '[문항 목록]',
+      ...safeQuestions.map(
+        (q) =>
+          `id=${q.id} | 질문: ${q.question || '(질문 없음)'} | 보기: ${q.options
+            .map((opt, idx) => `${idx}="${opt}"`)
+            .join(', ')}`
+      ),
+      '',
+      '반드시 다른 설명 없이 아래 순수 JSON 형식으로만 응답하세요:',
+      '{"answers":[{"id":0,"choice":0}]}',
+    ].join('\n');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': plainApiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    clearTimeout(timeoutId);
+    if (!res.ok) return { success: false };
+
+    const data = await res.json();
+    const rawJson = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '')
+      .replace(/^```json\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+    if (!rawJson) return { success: false };
+
+    const parsed = JSON.parse(rawJson);
+    const answers = Array.isArray(parsed?.answers) ? parsed.answers : [];
+    const selections: Record<number, number> = {};
+
+    for (const q of safeQuestions) {
+      const found = answers.find((a: any) => Number(a?.id) === q.id);
+      const choiceIdx = Number(found?.choice);
+      if (Number.isInteger(choiceIdx) && choiceIdx >= 0 && choiceIdx < q.options.length) {
+        selections[q.id] = choiceIdx;
+      }
+    }
+
+    return {
+      success: Object.keys(selections).length > 0,
+      selections,
+    };
+  } catch {
+    return { success: false };
+  }
+}
