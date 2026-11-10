@@ -172,8 +172,10 @@
     }
   }
 
-  // React/모던 프레임워크 호환 Input 값 주입
+  // React 16~19 제어 컴포넌트(_valueTracker 포함) 완벽 호환 Input 값 주입
   function setInputValue(input, text) {
+    if (!input) return;
+    const prevValue = input.value;
     input.focus();
     const nativeSetter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
@@ -184,6 +186,12 @@
     } else {
       input.value = text;
     }
+    // React 내부 _valueTracker를 이전 값으로 리셋해야 onChange가 100% 발화됨
+    try {
+      if (input._valueTracker) {
+        input._valueTracker.setValue(prevValue);
+      }
+    } catch (_) {}
     input.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
@@ -286,8 +294,37 @@
     );
   }
 
-  // 주문목록 검색창에 검색어를 입력하고 결과 로딩까지 대기 (전체 리로드 및 SPA 업데이트 모두 대응)
-  async function submitOrderSearch(searchInput, query, nextAttempt, task) {
+  // 주문목록 영역에 검색어(핵심 단어)와 일치하는 상품 카드가 렌더링되었는지 확인
+  function doesOrderAreaMatchQuery(query) {
+    const words = (query || '')
+      .replace(/[\[\]\(\)\{\},.\/\\~!\-_+*]+/g, ' ')
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length >= 2);
+    if (words.length === 0) return false;
+    const containerText = (getOrderAreaContainer().innerText || '').replace(/\s+/g, '');
+    const firstWord = words[0].replace(/\s+/g, '');
+    return Boolean(firstWord && containerText.includes(firstWord));
+  }
+
+  // 검색창 우측 돋보기 버튼 및 Enter 키로 검색 실행
+  function triggerSearchSubmit(searchInput) {
+    const inputWrap = searchInput.parentElement;
+    const searchIconWrap = inputWrap?.nextElementSibling;
+    const innerBtn =
+      searchIconWrap?.querySelector('button, a, [role="button"], svg, i, span') || searchIconWrap;
+
+    if (innerBtn) {
+      triggerClick(innerBtn);
+    }
+    if (searchIconWrap && innerBtn !== searchIconWrap) {
+      triggerClick(searchIconWrap);
+    }
+    dispatchEnterKey(searchInput);
+  }
+
+  // 주문목록 검색창에 검색어를 입력하고 검색 결과(및 리뷰 작성하기 버튼)가 완전히 뜰 때까지 충분히 대기
+  async function submitOrderSearch( query, nextAttempt, task) {
     const updatedTask = {
       ...task,
       searchAttempt: nextAttempt,
@@ -295,45 +332,71 @@
     };
     await chrome.storage.local.set({ activeReviewTask: updatedTask });
 
-    const container = getOrderAreaContainer();
-    const prevSnapshot = (container.innerText || '').slice(0, 500);
+    let searchInput = findOrderSearchInput();
+    if (!searchInput) return updatedTask;
 
-    // 기존 입력값 초기화 후 검색어 주입
-    setInputValue(searchInput, '');
-    await sleep(60);
+    // 검색어 주입 (React hydration 직후 유실 방지를 위해 2회 확인)
     setInputValue(searchInput, query);
-    await sleep(180);
-
-    // 검색창 우측 돋보기 아이콘 버튼 클릭 (없으면 Enter 발화)
-    const inputWrap = searchInput.parentElement;
-    const searchIconWrap = inputWrap?.nextElementSibling;
-    const searchBtn =
-      searchIconWrap?.querySelector('button, a, [role="button"]') || searchIconWrap;
-
-    if (searchBtn) {
-      triggerClick(searchBtn);
-    } else {
-      dispatchEnterKey(searchInput);
+    await sleep(250);
+    searchInput = findOrderSearchInput() || searchInput;
+    if ((searchInput.value || '').trim() !== query) {
+      setInputValue(searchInput, query);
+      await sleep(200);
     }
 
-    // 만약 돋보기 클릭으로 반응이 없으면 700ms 후 Enter 키 보조 발화
-    let changed = false;
-    for (let i = 0; i < 20; i++) {
-      await sleep(300);
-      if (i === 2 && !changed) {
-        const curSnap = (getOrderAreaContainer().innerText || '').slice(0, 500);
-        if (curSnap === prevSnapshot && !document.body.innerText.includes('검색 초기화')) {
-          dispatchEnterKey(searchInput);
+    // 검색 실행 (돋보기 아이콘 클릭 + Enter 키)
+    triggerSearchSubmit(searchInput);
+
+    // 1. 검색 네트워크 요청 및 기존 목록 교체를 위해 최소 2초는 무조건 대기 (0.1초 조기 스킵 원천 차단!)
+    await reportProgress(`검색 결과 로딩 대기 중: "${query.slice(0, 20)}"...`);
+    await sleep(2000);
+
+    // 2. 최대 8초 동안(0.5초 간격 x 16회) 검색 결과와 [리뷰 작성하기] 버튼이 렌더링될 때까지 폴링 대기
+    for (let i = 0; i < 16; i++) {
+      // 혹시 초기 하이드레이션 지연으로 검색어가 풀렸거나 검색이 안 들어갔다면 1회 재전송
+      if (i === 2 && !document.body.innerText.includes('검색 초기화')) {
+        const curInput = findOrderSearchInput();
+        if (curInput) {
+          if ((curInput.value || '').trim() !== query) {
+            setInputValue(curInput, query);
+            await sleep(180);
+          }
+          triggerSearchSubmit(curInput);
+          await sleep(1200);
         }
       }
 
-      const nowContainerText = getOrderAreaContainer().innerText || '';
       const hasResetBtn = document.body.innerText.includes('검색 초기화');
-      if (hasResetBtn || nowContainerText.slice(0, 500) !== prevSnapshot) {
-        changed = true;
-        await sleep(550); // 결과 카드 렌더링 안정화 대기
-        break;
+      const matchesQuery = doesOrderAreaMatchQuery(query);
+      const reviewBtns = findOrderListReviewButtons();
+
+      // 검색 결과 화면('검색 초기화' 표시 또는 검색어 일치 카드 등장)에서 [리뷰 작성하기] 버튼이 발견되면 안정화 후 즉시 반환!
+      if (reviewBtns.length > 0 && (hasResetBtn || matchesQuery)) {
+        await sleep(500);
+        return updatedTask;
       }
+
+      // '검색 초기화'가 떴고 주문 내역 없음 문구가 명확히 표시된 경우 (최소 3.5초 이상 경과 후 종료)
+      const areaText = getOrderAreaContainer().innerText || '';
+      const isExplicitEmpty =
+        areaText.includes('주문한 내역이 없습니다') ||
+        areaText.includes('주문 내역이 없습니다') ||
+        areaText.includes('검색 결과가 없습니다') ||
+        areaText.includes('조회된 주문 내역이 없습니다');
+
+      if (hasResetBtn && isExplicitEmpty && i >= 3) {
+        await sleep(400);
+        return updatedTask;
+      }
+
+      // '검색 초기화'가 떴고 검색어 일치 카드도 떴으나 [리뷰 작성하기] 버튼만 없는 경우:
+      // 버튼이 늦게 렌더링될 수 있으므로 최소 5초(2초 + i>=6 * 0.5초) 이상 충분히 기다린 뒤 종료
+      if (hasResetBtn && matchesQuery && reviewBtns.length === 0 && i >= 6) {
+        await sleep(400);
+        return updatedTask;
+      }
+
+      await sleep(500);
     }
 
     return updatedTask;
@@ -342,7 +405,7 @@
   // [Stage 1] 주문목록(mc.coupang.com/ssr/desktop/order/list)에서 상품명 검색 후 첫 번째 [리뷰 작성하기] 클릭
   async function executeSearchOrderListStage(task) {
     await reportProgress('쿠팡 주문목록 및 계정주 확인 중...');
-    await sleep(450);
+    await sleep(600);
 
     if (location.hostname.includes('login.coupang.com') || document.querySelector('#login-email-input')) {
       await failTask('쿠팡 로그인이 필요합니다. 먼저 이 크롬 창에서 쿠팡에 로그인해주세요.');
@@ -362,11 +425,11 @@
       return;
     }
 
-    // 검색창 렌더링 대기 (최대 10초)
+    // 검색창 및 초기 주문목록 React 하이드레이션 완료 대기 (최대 10초)
     let searchInput = null;
     for (let i = 0; i < 20; i++) {
       searchInput = findOrderSearchInput();
-      if (searchInput) break;
+      if (searchInput && (hasAnyOrderResultCards() || i >= 3)) break;
       await sleep(500);
     }
 
@@ -374,6 +437,9 @@
       await failTask('쿠팡 주문목록 검색창("주문한 상품을 검색할 수 있어요!")을 찾지 못했습니다.');
       return;
     }
+
+    // SSR 페이지 하이드레이션 안정화를 위해 추가 대기
+    await sleep(600);
 
     // 계정주 검증
     const detectedName = detectCoupangUserName();
@@ -403,18 +469,20 @@
     if (fallbackQuery === primaryQuery) fallbackQuery = '';
 
     let currentTask = { ...task, detectedAccountName: detectedName };
-    const currentInputVal = (searchInput.value || '').trim();
     const alreadySearchedOnPage =
       (currentTask.searchAttempt || 0) >= 1 &&
-      (document.body.innerText.includes('검색 초기화') ||
-        (currentTask.lastSearchedQuery && currentInputVal === currentTask.lastSearchedQuery));
+      document.body.innerText.includes('검색 초기화');
 
-    // 아직 1차 검색을 수행하지 않았으면 1차 검색 실행
+    // 아직 1차 검색을 수행하지 않았으면 1차 검색 실행 및 결과 대기
     if (!alreadySearchedOnPage) {
       await reportProgress(`주문목록 검색 중: "${primaryQuery.slice(0, 22)}"`);
-      currentTask = await submitOrderSearch(searchInput, primaryQuery, 1, currentTask);
+      currentTask = await submitOrderSearch(primaryQuery, 1, currentTask);
     } else {
-      await sleep(450);
+      // 페이지 리로드로 진입한 경우에도 결과 카드가 완전히 뜰 때까지 최대 4초 폴링 대기
+      for (let w = 0; w < 8; w++) {
+        if (findOrderListReviewButtons().length > 0) break;
+        await sleep(500);
+      }
     }
 
     // 1차 검색 결과에서 맨 위 첫 번째 [리뷰 작성하기] 버튼 확인
@@ -424,25 +492,24 @@
       return;
     }
 
-    // 검색 결과 카드가 아예 없고 아직 2차(앞 2~3단어) 재검색을 안 했다면 1회 재검색
-    const cardsExist = hasAnyOrderResultCards();
-    if (!cardsExist && (currentTask.searchAttempt || 1) < 2 && fallbackQuery) {
-      const freshInput = findOrderSearchInput();
-      if (freshInput) {
-        await reportProgress(`검색 결과 없음 → "${fallbackQuery}"(으)로 1회 재검색 중...`);
-        currentTask = await submitOrderSearch(freshInput, fallbackQuery, 2, currentTask);
+    // 검색 결과에 해당 상품 카드가 없거나 [리뷰 작성하기]가 안 떴을 때 앞 2~3단어로 1회 재검색
+    const matchedPrimary = doesOrderAreaMatchQuery(primaryQuery);
+    if (!matchedPrimary && (currentTask.searchAttempt || 1) < 2 && fallbackQuery) {
+      await reportProgress(`검색 결과 없음 → "${fallbackQuery}"(으)로 1회 재검색 중...`);
+      currentTask = await submitOrderSearch(fallbackQuery, 2, currentTask);
 
-        reviewBtns = findOrderListReviewButtons();
-        if (reviewBtns.length > 0) {
-          await clickOrderListReviewBtnAndProceed(reviewBtns[0], currentTask);
-          return;
-        }
+      reviewBtns = findOrderListReviewButtons();
+      if (reviewBtns.length > 0) {
+        await clickOrderListReviewBtnAndProceed(reviewBtns[0], currentTask);
+        return;
       }
     }
 
-    // 여전히 [리뷰 작성하기] 버튼이 없으면 완료 체크 없이 건너뛰고 다음 상품 진행
-    const finalCardsExist = hasAnyOrderResultCards();
-    if (finalCardsExist) {
+    // 충분한 대기 후에도 [리뷰 작성하기] 버튼이 없으면 건너뛰고 다음 상품 진행
+    const finalMatched =
+      doesOrderAreaMatchQuery(primaryQuery) ||
+      (fallbackQuery ? doesOrderAreaMatchQuery(fallbackQuery) : false);
+    if (finalMatched) {
       await skipTask('주문 내역은 있으나 [리뷰 작성하기] 버튼이 없습니다. (배송중 또는 이미 작성 완료)');
     } else {
       await skipTask(`주문목록에서 "${primaryQuery.slice(0, 24)}" 상품을 찾지 못해 건너뜁니다.`);
@@ -479,6 +546,7 @@
   // [Stage 2] 이동한 리뷰관리 페이지(4번째 사진)에서 맨 위 첫 번째 [리뷰 작성하기] 버튼 한 번 더 클릭
   async function executeClickWritableReviewStage(task) {
     await reportProgress('리뷰관리 페이지 로딩 대기 중...');
+    await sleep(700);
 
     // 이미 작성 폼으로 바로 진입한 경우 Stage 3로 직행
     if (document.body?.innerText?.includes('상품 품질 리뷰')) {
