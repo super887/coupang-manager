@@ -450,32 +450,25 @@
       return;
     }
 
-    // [규칙 3-1] 상품명에 콤마(,)가 있다면 콤마 앞까지만 상품명(뒤에는 옵션명)
+    // [규칙 3-1] 상품명(콤마 앞)에서 앞에서 최대 3어절까지만 추출하여 검색
     const rawProductName = (task.productName || '').trim();
-    const primaryQuery = rawProductName.split(/[,，]/)[0].trim() || rawProductName;
-
-    // 1차 검색 실패 시 사용할 앞 2~3단어 축약 검색어 준비
-    const queryWords = primaryQuery
+    const baseProductName = rawProductName.split(/[,，]/)[0].trim() || rawProductName;
+    const queryWords = baseProductName
       .replace(/[\[\]\(\)\{\}\/\\~!\-_+*]+/g, ' ')
       .split(/\s+/)
       .map((w) => w.trim())
       .filter(Boolean);
-    let fallbackQuery = '';
-    if (queryWords.length > 3) {
-      fallbackQuery = queryWords.slice(0, 3).join(' ');
-    } else if (queryWords.length === 3) {
-      fallbackQuery = queryWords.slice(0, 2).join(' ');
-    }
-    if (fallbackQuery === primaryQuery) fallbackQuery = '';
+    const primaryQuery =
+      queryWords.length > 0 ? queryWords.slice(0, 3).join(' ') : baseProductName;
 
     let currentTask = { ...task, detectedAccountName: detectedName };
     const alreadySearchedOnPage =
       (currentTask.searchAttempt || 0) >= 1 &&
       document.body.innerText.includes('검색 초기화');
 
-    // 아직 1차 검색을 수행하지 않았으면 1차 검색 실행 및 결과 대기
+    // 주문목록에서 앞 3어절 검색 실행 및 결과 대기
     if (!alreadySearchedOnPage) {
-      await reportProgress(`주문목록 검색 중: "${primaryQuery.slice(0, 22)}"`);
+      await reportProgress(`주문목록 검색 중 (앞 3어절): "${primaryQuery}"`);
       currentTask = await submitOrderSearch(primaryQuery, 1, currentTask);
     } else {
       // 페이지 리로드로 진입한 경우에도 결과 카드가 완전히 뜰 때까지 최대 4초 폴링 대기
@@ -485,34 +478,19 @@
       }
     }
 
-    // 1차 검색 결과에서 맨 위 첫 번째 [리뷰 작성하기] 버튼 확인
-    let reviewBtns = findOrderListReviewButtons();
+    // 검색 결과에서 맨 위 첫 번째 [리뷰 작성하기] 버튼 확인 후 클릭
+    const reviewBtns = findOrderListReviewButtons();
     if (reviewBtns.length > 0) {
       await clickOrderListReviewBtnAndProceed(reviewBtns[0], currentTask);
       return;
     }
 
-    // 검색 결과에 해당 상품 카드가 없거나 [리뷰 작성하기]가 안 떴을 때 앞 2~3단어로 1회 재검색
-    const matchedPrimary = doesOrderAreaMatchQuery(primaryQuery);
-    if (!matchedPrimary && (currentTask.searchAttempt || 1) < 2 && fallbackQuery) {
-      await reportProgress(`검색 결과 없음 → "${fallbackQuery}"(으)로 1회 재검색 중...`);
-      currentTask = await submitOrderSearch(fallbackQuery, 2, currentTask);
-
-      reviewBtns = findOrderListReviewButtons();
-      if (reviewBtns.length > 0) {
-        await clickOrderListReviewBtnAndProceed(reviewBtns[0], currentTask);
-        return;
-      }
-    }
-
     // 충분한 대기 후에도 [리뷰 작성하기] 버튼이 없으면 건너뛰고 다음 상품 진행
-    const finalMatched =
-      doesOrderAreaMatchQuery(primaryQuery) ||
-      (fallbackQuery ? doesOrderAreaMatchQuery(fallbackQuery) : false);
+    const finalMatched = doesOrderAreaMatchQuery(primaryQuery);
     if (finalMatched) {
       await skipTask('주문 내역은 있으나 [리뷰 작성하기] 버튼이 없습니다. (배송중 또는 이미 작성 완료)');
     } else {
-      await skipTask(`주문목록에서 "${primaryQuery.slice(0, 24)}" 상품을 찾지 못해 건너뜁니다.`);
+      await skipTask(`주문목록에서 "${primaryQuery}" 상품을 찾지 못해 건너뜁니다.`);
     }
   }
 
