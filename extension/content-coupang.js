@@ -450,7 +450,7 @@
       return;
     }
 
-    // [규칙 3-1] 상품명(콤마 앞)에서 앞에서 최대 3어절까지만 추출하여 검색
+    // [규칙 3-1] 상품명(콤마 앞)에서 앞에서 최대 6어절까지만 추출하여 검색
     const rawProductName = (task.productName || '').trim();
     const baseProductName = rawProductName.split(/[,，]/)[0].trim() || rawProductName;
     const queryWords = baseProductName
@@ -459,16 +459,16 @@
       .map((w) => w.trim())
       .filter(Boolean);
     const primaryQuery =
-      queryWords.length > 0 ? queryWords.slice(0, 3).join(' ') : baseProductName;
+      queryWords.length > 0 ? queryWords.slice(0, 6).join(' ') : baseProductName;
 
     let currentTask = { ...task, detectedAccountName: detectedName };
     const alreadySearchedOnPage =
       (currentTask.searchAttempt || 0) >= 1 &&
       document.body.innerText.includes('검색 초기화');
 
-    // 주문목록에서 앞 3어절 검색 실행 및 결과 대기
+    // 주문목록에서 앞 6어절 검색 실행 및 결과 대기
     if (!alreadySearchedOnPage) {
-      await reportProgress(`주문목록 검색 중 (앞 3어절): "${primaryQuery}"`);
+      await reportProgress(`주문목록 검색 중 (앞 6어절): "${primaryQuery}"`);
       currentTask = await submitOrderSearch(primaryQuery, 1, currentTask);
     } else {
       // 페이지 리로드로 진입한 경우에도 결과 카드가 완전히 뜰 때까지 최대 4초 폴링 대기
