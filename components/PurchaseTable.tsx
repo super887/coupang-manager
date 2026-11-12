@@ -85,8 +85,10 @@ export default function PurchaseTable({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [searchField, setSearchField] = useState('productName');
+  const [appliedField, setAppliedField] = useState('productName');
   const [searchInput, setSearchInput] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
+  const [searchTrigger, setSearchTrigger] = useState(0);
   const [localData, setLocalData] = useState<any[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -161,7 +163,7 @@ export default function PurchaseTable({
       const data = await getPaginatedPurchases({
         page: currentPage,
         pageSize: 100,
-        searchField,
+        searchField: appliedField,
         searchKeyword: appliedSearch,
         isCompleted: activeTab === 'completed',
       });
@@ -174,11 +176,11 @@ export default function PurchaseTable({
       setIsLoading(false);
       setHideSpinner(false);
     }
-  }, [currentPage, searchField, appliedSearch, activeTab]);
+  }, [currentPage, appliedField, appliedSearch, activeTab]);
 
   useEffect(() => {
     fetchData();
-  }, [currentPage, appliedSearch, activeTab]);
+  }, [currentPage, appliedField, appliedSearch, searchTrigger, activeTab, fetchData]);
 
   // 크롬 확장 프로그램 감지 및 메시지 수신 리스너
   useEffect(() => {
@@ -272,7 +274,18 @@ export default function PurchaseTable({
   const executeSearch = (e?: React.FormEvent | React.MouseEvent) => {
     if (e) e.preventDefault();
     setCurrentPage(1);
+    setAppliedField(searchField);
     setAppliedSearch(searchInput);
+    setSearchTrigger((prev) => prev + 1);
+  };
+
+  const resetSearch = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    setCurrentPage(1);
+    setSearchInput('');
+    setAppliedSearch('');
+    setAppliedField(searchField);
+    setSearchTrigger((prev) => prev + 1);
   };
 
   const changeTab = (e: React.MouseEvent, tab: 'progress' | 'completed') => {
@@ -282,6 +295,7 @@ export default function PurchaseTable({
     setCurrentPage(1);
     setSearchInput('');
     setAppliedSearch('');
+    setAppliedField(searchField);
   };
 
   const handleLocalChange = (id: string, field: string, value: any) => {
@@ -981,7 +995,16 @@ export default function PurchaseTable({
         <div className="flex items-center gap-2 flex-wrap">
           <select
             value={searchField}
-            onChange={(e) => setSearchField(e.target.value)}
+            onChange={(e) => {
+              const nextField = e.target.value;
+              setSearchField(nextField);
+              if (searchInput.trim() !== '' || appliedSearch.trim() !== '') {
+                setCurrentPage(1);
+                setAppliedField(nextField);
+                setAppliedSearch(searchInput);
+                setSearchTrigger((prev) => prev + 1);
+              }
+            }}
             className="p-2 border rounded-lg outline-none text-sm bg-white"
           >
             <option value="productName">상품명</option>
@@ -1008,6 +1031,16 @@ export default function PurchaseTable({
           >
             검색
           </button>
+          {(appliedSearch !== '' || searchInput !== '') && (
+            <button
+              type="button"
+              onClick={resetSearch}
+              className="bg-white text-gray-600 border border-gray-300 px-2.5 py-2 rounded-lg text-sm font-semibold hover:bg-gray-100"
+              title="검색 초기화 (전체 목록 보기)"
+            >
+              초기화
+            </button>
+          )}
 
           {/* 크롬 확장프로그램 연결 상태 배지 */}
           <button
