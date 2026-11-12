@@ -323,14 +323,17 @@
       await sleep(500);
     }
 
-    const maxScrolls = 20;
+    const maxScrolls = 30;
+    const MAX_BOTTOM_RETRIES = 3; // 맨 밑바닥에서 연속 3번 스크롤/대기해도 추가 로딩이 없을 때만 진짜 끝으로 판정
     const searchTargetName = (task.productName || '').split(/[,，]/)[0].trim() || task.productName;
-    let reachedBottomOnce = false;
+    let noNewItemsCount = 0;
 
     for (let attempt = 1; attempt <= maxScrolls; attempt++) {
-      await reportProgress(`상품 찾는 중... (${attempt}회차 스크롤) "${searchTargetName.slice(0, 18)}"`);
-
       const writeButtons = getVisibleWriteButtons();
+
+      await reportProgress(
+        `상품 찾는 중... (현재 ${writeButtons.length}개 로드됨) "${searchTargetName.slice(0, 16)}"`
+      );
 
       // 작성 가능한 리뷰가 아예 0개면 스크롤할 필요 없이 즉시 종료
       if (writeButtons.length === 0) {
@@ -395,62 +398,47 @@
         return;
       }
 
-      // ===== [맨 밑 도달 자체 검사 로직] =====
-      const writableListEl = document.querySelector('#order_based_writables, [data-has-more]');
-      const hasMoreAttr = writableListEl?.getAttribute('data-has-more');
-
-      // 쿠팡 DOM이 data-has-more="false"(추가 로딩할 페이지 없음)이고 이미 1회 이상 끝까지 확인했다면 즉시 중단!
-      if (hasMoreAttr === 'false' && reachedBottomOnce) {
-        break;
-      }
-
+      // ===== [무한 스크롤 & 맨 밑바닥 다중 재시도 감지 로직] =====
       const prevBtnCount = writeButtons.length;
-      const prevItemCount = document.querySelectorAll(
-        'li.my-review__writable__list, li[class*="writable"]'
-      ).length;
       const prevScrollHeight = document.documentElement.scrollHeight;
 
-      // 맨 아래로 스크롤하여 추가 로딩 유도
+      if (noNewItemsCount > 0) {
+        // 이미 바닥에 닿아 있는 상태라면 위로 살짝 올렸다가 다시 맨 밑으로 내려 스크롤 이벤트를 강제 재발화
+        await reportProgress(
+          `맨 밑바닥 추가 로딩 확인 중... (${noNewItemsCount}/${MAX_BOTTOM_RETRIES})`
+        );
+        window.scrollBy({ top: -300, behavior: 'instant' });
+        await sleep(180);
+      }
+
+      // 맨 아래로 스크롤하여 다음 20개 로딩 유도
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+      window.dispatchEvent(new Event('scroll'));
+
+      // 스크롤 이동(0.7초) 후 최대 1.8초(0.3초 x 6회) 동안 다음 20개가 로딩되는지 대기 (로딩되는 즉시 다음 탐색 진행!)
       await sleep(700);
-
-      // 만약 쿠팡 리스트가 현재 추가 데이터를 불러오는 중(data-loading-status="loading")이면 완료까지 대기
-      for (let l = 0; l < 5; l++) {
-        const status = writableListEl?.getAttribute('data-loading-status');
-        if (status && status.toLowerCase().includes('load')) {
-          await sleep(220);
-        } else {
+      let loadedMore = false;
+      for (let waitStep = 0; waitStep < 6; waitStep++) {
+        const curBtnCount = getVisibleWriteButtons().length;
+        const curScrollHeight = document.documentElement.scrollHeight;
+        if (curBtnCount > prevBtnCount || curScrollHeight > prevScrollHeight + 50) {
+          loadedMore = true;
+          await sleep(250); // 새로 추가된 카드 DOM 안정화 대기
           break;
         }
+        await sleep(300);
       }
 
-      const newBtnCount = getVisibleWriteButtons().length;
-      const newItemCount = document.querySelectorAll(
-        'li.my-review__writable__list, li[class*="writable"]'
-      ).length;
-      const newScrollHeight = document.documentElement.scrollHeight;
-      const nowHasMore = writableListEl?.getAttribute('data-has-more');
-
-      // 스크롤 후에도 새 항목이 전혀 늘어나지 않았고 페이지 높이도 그대로인 경우 -> 맨 밑 도달!
-      if (newBtnCount === prevBtnCount && newItemCount === prevItemCount && newScrollHeight <= prevScrollHeight) {
-        if (nowHasMore === 'false' || reachedBottomOnce) {
-          // 마지막으로 새로 렌더링된 카드가 없는지 1회만 더 루프 상단에서 확인 후 종료하도록 플래그 설정
-          if (reachedBottomOnce) break;
-          reachedBottomOnce = true;
-          continue;
-        }
-
-        // 네트워크 지연 가능성을 고려해 0.45초만 한 번 더 기다려보고 여전히 그대로면 즉시 종료!
-        await sleep(450);
-        const retryBtnCount = getVisibleWriteButtons().length;
-        const retryScrollHeight = document.documentElement.scrollHeight;
-        if (retryBtnCount === prevBtnCount && retryScrollHeight <= prevScrollHeight) {
+      if (loadedMore) {
+        // 새 항목(다음 20개)이 정상 로딩되었으므로 바닥 카운터 초기화!
+        noNewItemsCount = 0;
+      } else {
+        // 이번 스크롤에서 새 항목이 안 늘어남 -> 바닥 재시도 카운트 증가
+        noNewItemsCount++;
+        if (noNewItemsCount >= MAX_BOTTOM_RETRIES) {
+          // 맨 밑바닥에서 3번 연속 스크롤링 및 ~1.8초 대기를 반복했는데도 더 이상 로딩이 없으면 진짜 끝!
           break;
         }
-      }
-
-      if (nowHasMore === 'false') {
-        reachedBottomOnce = true;
       }
     }
 
