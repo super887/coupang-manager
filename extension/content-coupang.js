@@ -1,4 +1,4 @@
-// 쿠팡 주문목록(mc.coupang.com) & 리뷰관리(my.coupang.com) 자동 리뷰 작성 및 인증 캡처 스크립트
+// 쿠팡 마이페이지(my.coupang.com) 자동 리뷰 작성 및 인증 영역 캡처 스크립트
 
 (function () {
   // 최상위 윈도우에서만 실행 (iframe 중복 실행 원천 차단)
@@ -6,7 +6,7 @@
   if (window.__COUPANG_MANAGER_CONTENT_SCRIPT__) return;
   window.__COUPANG_MANAGER_CONTENT_SCRIPT__ = true;
 
-  const ORDER_LIST_URL = 'https://mc.coupang.com/ssr/desktop/order/list';
+  const REVIEWABLE_URL = 'https://my.coupang.com/productreview/reviewable';
 
   let isRunningStage = false;
   let hasClickedSubmitOnThisPage = false;
@@ -108,7 +108,7 @@
     const STOP_WORDS = new Set(['고객', '회원', '손님', '사용자', '관리자', '상담원', '체험단']);
     const bodyText = document.body?.innerText || '';
 
-    // 1. 마스킹 이름 (예: 김*연, 이*온)
+    // 1. 리뷰관리 상단 프로필 영역 마스킹 이름 (예: 김*연, 이*온)
     const maskedMatches = Array.from(bodyText.matchAll(/([가-힣]\*+[가-힣]+)/g));
     for (const m of maskedMatches) {
       const candidate = (m[1] || '').trim();
@@ -117,7 +117,7 @@
       }
     }
 
-    // 2. 상단 GNB 영역 "OOO님" (단, '고객님', '회원님' 등 제외)
+    // 2. 상단 헤더 GNB 영역 "OOO님" (단, '고객님', '회원님' 등 제외)
     const headerMatches = Array.from(bodyText.matchAll(/([가-힣*]{2,5})\s*님/g));
     for (const m of headerMatches) {
       const candidate = (m[1] || '').trim();
@@ -152,6 +152,71 @@
     return exp.includes(det) || det.includes(exp);
   }
 
+  // 상품명 정규화 및 부분 일치 매칭 (쉼표 뒤 옵션명 분리 지원)
+  function normalizeText(str) {
+    return String(str || '')
+      .toLowerCase()
+      .replace(/[\s\[\]\(\)\{\},.·/\\~!\-_+*'"`✨🚀]+/g, '');
+  }
+
+  function isProductNameMatch(webProductName, cardText) {
+    const rawWeb = String(webProductName || '').trim();
+    const rawCard = String(cardText || '').trim();
+    if (!rawWeb || !rawCard) return false;
+
+    // 쉼표(,)가 포함된 경우 옵션 제외하고 쉼표 앞의 핵심 상품명 우선 추출
+    const commaParts = rawWeb.split(/[,，]/);
+    const coreName = commaParts[0].trim();
+
+    const normFullWeb = normalizeText(rawWeb);
+    const normCoreWeb = normalizeText(coreName);
+    const normCard = normalizeText(rawCard);
+    if (!normCard) return false;
+
+    // 1. 쉼표(,) 앞의 핵심 상품명으로 우선 일치 검사
+    if (commaParts.length > 1 && normCoreWeb.length >= 2) {
+      if (normCard.includes(normCoreWeb) || (normCoreWeb.length >= 6 && normCoreWeb.includes(normCard))) {
+        return true;
+      }
+      const coreTokens = coreName
+        .replace(/[\[\]\(\)\{\},.\/\\~!\-_+*]+/g, ' ')
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2);
+      if (coreTokens.length >= 2) {
+        const matched = coreTokens.filter((t) => normCard.includes(normalizeText(t)));
+        if (matched.length >= Math.ceil(coreTokens.length * 0.8)) {
+          return true;
+        }
+      }
+    }
+
+    // 2. 전체 상품명 띄어쓰기/특수문자 무시 부분 일치
+    if (
+      normFullWeb &&
+      (normCard.includes(normFullWeb) ||
+        (normFullWeb.length >= 6 && normFullWeb.includes(normCard) && normCard.length >= 6))
+    ) {
+      return true;
+    }
+
+    // 3. 전체 상품명 단어 토큰 매칭
+    const fullTokens = rawWeb
+      .replace(/[\[\]\(\)\{\},.\/\\~!\-_+*]+/g, ' ')
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2);
+
+    if (fullTokens.length >= 2) {
+      const matchedTokens = fullTokens.filter((t) => normCard.includes(normalizeText(t)));
+      if (matchedTokens.length === fullTokens.length) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   // 안전한 단일 클릭 실행 (SVG 등 click 미지원 요소 대응)
   function triggerClick(el) {
     if (!el) return;
@@ -172,30 +237,6 @@
     }
   }
 
-  // React 16~19 제어 컴포넌트(_valueTracker 포함) 완벽 호환 Input 값 주입
-  function setInputValue(input, text) {
-    if (!input) return;
-    const prevValue = input.value;
-    input.focus();
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      'value'
-    )?.set;
-    if (nativeSetter) {
-      nativeSetter.call(input, text);
-    } else {
-      input.value = text;
-    }
-    // React 내부 _valueTracker를 이전 값으로 리셋해야 onChange가 100% 발화됨
-    try {
-      if (input._valueTracker) {
-        input._valueTracker.setValue(prevValue);
-      }
-    } catch (_) {}
-    input.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
   // React/모던 프레임워크 호환 Textarea 값 주입
   function setTextareaValue(textarea, text) {
     textarea.focus();
@@ -213,198 +254,21 @@
     textarea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
   }
 
-  function dispatchEnterKey(el) {
-    const opts = {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true,
-    };
-    el.dispatchEvent(new KeyboardEvent('keydown', opts));
-    el.dispatchEvent(new KeyboardEvent('keypress', opts));
-    el.dispatchEvent(new KeyboardEvent('keyup', opts));
-  }
-
-  // 주문목록 페이지의 전용 상품 검색창("주문한 상품을 검색할 수 있어요!") 탐색
-  function findOrderSearchInput() {
-    const exact = document.querySelector('input[placeholder*="주문한 상품"]');
-    if (exact && exact.offsetParent !== null) return exact;
-
-    const area =
-      document.querySelector('.my-area-contents') ||
-      document.querySelector('#contents') ||
-      document.querySelector('#__next');
-    if (!area) return null;
-
-    const inputs = Array.from(area.querySelectorAll('input')).filter((inp) => {
-      if (inp.offsetParent === null) return false;
-      if (inp.closest('header, #header, .gnb, #mc-left-menu, footer')) return false;
-      const type = (inp.type || 'text').toLowerCase();
-      if (type !== 'text' && type !== 'search') return false;
-      const ph = inp.placeholder || '';
-      if (ph.includes('찾고 싶은 상품')) return false;
-      return ph.includes('검색') || ph.includes('상품');
-    });
-
-    return inputs[0] || null;
-  }
-
-  function getOrderAreaContainer() {
-    return (
-      document.querySelector('.my-area-contents') ||
-      document.querySelector('#contents') ||
-      document.body
-    );
-  }
-
-  // 주문목록 검색 결과 영역 내 모든 활성화된 [리뷰 작성하기] 버튼 조회 (위에서부터 순서대로)
-  function findOrderListReviewButtons() {
-    const container = getOrderAreaContainer();
+  // 화면 내 모든 활성화된 [리뷰 작성하기] 버튼 조회
+  function getVisibleWriteButtons() {
     return Array.from(
-      container.querySelectorAll('button, a, div[role="button"], span[role="button"]')
+      document.querySelectorAll('button, a, div[role="button"], span, input[type="button"]')
     ).filter((el) => {
       if (el.offsetParent === null) return false;
-      if (el.closest('#mc-left-menu, .my-area-left, header, footer, #header, #footer')) {
-        return false;
-      }
-      const txt = (el.innerText || el.value || '').trim();
-      return txt === '리뷰 작성하기';
+      if (el.closest('header, footer, #header, #footer, .my-area-left')) return false;
+      const t = (el.innerText || el.value || '').trim();
+      return t === '리뷰 작성하기';
     });
   }
 
-  // 주문목록에 검색 결과 주문 카드가 1개라도 존재하는지 판별
-  function hasAnyOrderResultCards() {
-    const container = getOrderAreaContainer();
-    const text = container.innerText || '';
-    if (
-      text.includes('주문한 내역이 없습니다') ||
-      text.includes('주문 내역이 없습니다') ||
-      text.includes('검색 결과가 없습니다') ||
-      text.includes('조회된 주문 내역이 없습니다')
-    ) {
-      return false;
-    }
-    return (
-      text.includes('주문 상세보기') ||
-      text.includes('장바구니 담기') ||
-      text.includes('배송 조회') ||
-      text.includes('판매자 문의')
-    );
-  }
-
-  // 주문목록 영역에 검색어(핵심 단어)와 일치하는 상품 카드가 렌더링되었는지 확인
-  function doesOrderAreaMatchQuery(query) {
-    const words = (query || '')
-      .replace(/[\[\]\(\)\{\},.\/\\~!\-_+*]+/g, ' ')
-      .split(/\s+/)
-      .map((w) => w.trim())
-      .filter((w) => w.length >= 2);
-    if (words.length === 0) return false;
-    const containerText = (getOrderAreaContainer().innerText || '').replace(/\s+/g, '');
-    const firstWord = words[0].replace(/\s+/g, '');
-    return Boolean(firstWord && containerText.includes(firstWord));
-  }
-
-  // 검색창 우측 돋보기 버튼 및 Enter 키로 검색 실행
-  function triggerSearchSubmit(searchInput) {
-    const inputWrap = searchInput.parentElement;
-    const searchIconWrap = inputWrap?.nextElementSibling;
-    const innerBtn =
-      searchIconWrap?.querySelector('button, a, [role="button"], svg, i, span') || searchIconWrap;
-
-    if (innerBtn) {
-      triggerClick(innerBtn);
-    }
-    if (searchIconWrap && innerBtn !== searchIconWrap) {
-      triggerClick(searchIconWrap);
-    }
-    dispatchEnterKey(searchInput);
-  }
-
-  // 주문목록 검색창에 검색어를 입력하고 검색 결과(및 리뷰 작성하기 버튼)가 완전히 뜰 때까지 충분히 대기
-  async function submitOrderSearch( query, nextAttempt, task) {
-    const updatedTask = {
-      ...task,
-      searchAttempt: nextAttempt,
-      lastSearchedQuery: query,
-    };
-    await chrome.storage.local.set({ activeReviewTask: updatedTask });
-
-    let searchInput = findOrderSearchInput();
-    if (!searchInput) return updatedTask;
-
-    // 검색어 주입 (React hydration 직후 유실 방지를 위해 2회 확인)
-    setInputValue(searchInput, query);
-    await sleep(250);
-    searchInput = findOrderSearchInput() || searchInput;
-    if ((searchInput.value || '').trim() !== query) {
-      setInputValue(searchInput, query);
-      await sleep(200);
-    }
-
-    // 검색 실행 (돋보기 아이콘 클릭 + Enter 키)
-    triggerSearchSubmit(searchInput);
-
-    // 1. 검색 네트워크 요청 및 기존 목록 교체를 위해 최소 2초는 무조건 대기 (0.1초 조기 스킵 원천 차단!)
-    await reportProgress(`검색 결과 로딩 대기 중: "${query.slice(0, 20)}"...`);
-    await sleep(2000);
-
-    // 2. 최대 8초 동안(0.5초 간격 x 16회) 검색 결과와 [리뷰 작성하기] 버튼이 렌더링될 때까지 폴링 대기
-    for (let i = 0; i < 16; i++) {
-      // 혹시 초기 하이드레이션 지연으로 검색어가 풀렸거나 검색이 안 들어갔다면 1회 재전송
-      if (i === 2 && !document.body.innerText.includes('검색 초기화')) {
-        const curInput = findOrderSearchInput();
-        if (curInput) {
-          if ((curInput.value || '').trim() !== query) {
-            setInputValue(curInput, query);
-            await sleep(180);
-          }
-          triggerSearchSubmit(curInput);
-          await sleep(1200);
-        }
-      }
-
-      const hasResetBtn = document.body.innerText.includes('검색 초기화');
-      const matchesQuery = doesOrderAreaMatchQuery(query);
-      const reviewBtns = findOrderListReviewButtons();
-
-      // 검색 결과 화면('검색 초기화' 표시 또는 검색어 일치 카드 등장)에서 [리뷰 작성하기] 버튼이 발견되면 안정화 후 즉시 반환!
-      if (reviewBtns.length > 0 && (hasResetBtn || matchesQuery)) {
-        await sleep(500);
-        return updatedTask;
-      }
-
-      // '검색 초기화'가 떴고 주문 내역 없음 문구가 명확히 표시된 경우 (최소 3.5초 이상 경과 후 종료)
-      const areaText = getOrderAreaContainer().innerText || '';
-      const isExplicitEmpty =
-        areaText.includes('주문한 내역이 없습니다') ||
-        areaText.includes('주문 내역이 없습니다') ||
-        areaText.includes('검색 결과가 없습니다') ||
-        areaText.includes('조회된 주문 내역이 없습니다');
-
-      if (hasResetBtn && isExplicitEmpty && i >= 3) {
-        await sleep(400);
-        return updatedTask;
-      }
-
-      // '검색 초기화'가 떴고 검색어 일치 카드도 떴으나 [리뷰 작성하기] 버튼만 없는 경우:
-      // 버튼이 늦게 렌더링될 수 있으므로 최소 5초(2초 + i>=6 * 0.5초) 이상 충분히 기다린 뒤 종료
-      if (hasResetBtn && matchesQuery && reviewBtns.length === 0 && i >= 6) {
-        await sleep(400);
-        return updatedTask;
-      }
-
-      await sleep(500);
-    }
-
-    return updatedTask;
-  }
-
-  // [Stage 1] 주문목록(mc.coupang.com/ssr/desktop/order/list)에서 상품명 검색 후 첫 번째 [리뷰 작성하기] 클릭
-  async function executeSearchOrderListStage(task) {
-    await reportProgress('쿠팡 주문목록 및 계정주 확인 중...');
+  // [Stage 1] 리뷰 작성 대기 목록(my.coupang.com/productreview/reviewable)에서 상품 탐색 (맨 밑 도달 자동 감지!)
+  async function executeFindProductStage(task) {
+    await reportProgress('쿠팡 로그인 및 계정주 확인 중...');
     await sleep(600);
 
     if (location.hostname.includes('login.coupang.com') || document.querySelector('#login-email-input')) {
@@ -412,194 +276,187 @@
       return;
     }
 
-    // 만약 이미 리뷰 작성 폼이 열려 있다면 바로 작성 단계로 진입
-    if (document.body?.innerText?.includes('상품 품질 리뷰')) {
-      const updated = { ...task, stage: 'FILL_FORM' };
-      await chrome.storage.local.set({ activeReviewTask: updated });
-      await executeFillFormStage(updated);
+    // 404 잘못된 경로인 경우 리뷰 작성 페이지로 자동 재이동
+    if (document.body?.innerText?.includes('찾을 수 없는 페이지')) {
+      location.href = REVIEWABLE_URL;
       return;
     }
-
-    if (!location.href.startsWith('https://mc.coupang.com/ssr/desktop/order/list')) {
-      location.href = ORDER_LIST_URL;
-      return;
-    }
-
-    // 검색창 및 초기 주문목록 React 하이드레이션 완료 대기 (최대 10초)
-    let searchInput = null;
-    for (let i = 0; i < 20; i++) {
-      searchInput = findOrderSearchInput();
-      if (searchInput && (hasAnyOrderResultCards() || i >= 3)) break;
-      await sleep(500);
-    }
-
-    if (!searchInput) {
-      await failTask('쿠팡 주문목록 검색창("주문한 상품을 검색할 수 있어요!")을 찾지 못했습니다.');
-      return;
-    }
-
-    // SSR 페이지 하이드레이션 안정화를 위해 추가 대기
-    await sleep(600);
 
     // 계정주 검증
     const detectedName = detectCoupangUserName();
     if (task.accountHolder && detectedName && !isAccountNameMatch(task.accountHolder, detectedName)) {
       await failTask(
-        `계정주 불일치! 현재 쿠팡 로그인 계정(${detectedName})과 선택한 항목의 계정주(${task.accountHolder})가 다릅니다.`
+        `계정주 불일치! 현재 쿠팡 로그인 계정(${detectedName})과 선택한 상품의 계정주(${task.accountHolder})가 다릅니다.`
       );
       return;
     }
 
-    // [규칙 3-1] 상품명(콤마 앞)에서 앞에서 최대 6어절까지만 추출하여 검색
-    const rawProductName = (task.productName || '').trim();
-    const baseProductName = rawProductName.split(/[,，]/)[0].trim() || rawProductName;
-    const queryWords = baseProductName
-      .replace(/[\[\]\(\)\{\}\/\\~!\-_+*]+/g, ' ')
-      .split(/\s+/)
-      .map((w) => w.trim())
-      .filter(Boolean);
-    const primaryQuery =
-      queryWords.length > 0 ? queryWords.slice(0, 6).join(' ') : baseProductName;
-
-    let currentTask = { ...task, detectedAccountName: detectedName };
-    const alreadySearchedOnPage =
-      (currentTask.searchAttempt || 0) >= 1 &&
-      document.body.innerText.includes('검색 초기화');
-
-    // 주문목록에서 앞 6어절 검색 실행 및 결과 대기
-    if (!alreadySearchedOnPage) {
-      await reportProgress(`주문목록 검색 중 (앞 6어절): "${primaryQuery}"`);
-      currentTask = await submitOrderSearch(primaryQuery, 1, currentTask);
-    } else {
-      // 페이지 리로드로 진입한 경우에도 결과 카드가 완전히 뜰 때까지 최대 4초 폴링 대기
-      for (let w = 0; w < 8; w++) {
-        if (findOrderListReviewButtons().length > 0) break;
-        await sleep(500);
-      }
-    }
-
-    // 검색 결과에서 맨 위 첫 번째 [리뷰 작성하기] 버튼 확인 후 클릭
-    const reviewBtns = findOrderListReviewButtons();
-    if (reviewBtns.length > 0) {
-      await clickOrderListReviewBtnAndProceed(reviewBtns[0], currentTask);
-      return;
-    }
-
-    // 충분한 대기 후에도 [리뷰 작성하기] 버튼이 없으면 건너뛰고 다음 상품 진행
-    const finalMatched = doesOrderAreaMatchQuery(primaryQuery);
-    if (finalMatched) {
-      await skipTask('주문 내역은 있으나 [리뷰 작성하기] 버튼이 없습니다. (배송중 또는 이미 작성 완료)');
-    } else {
-      await skipTask(`주문목록에서 "${primaryQuery}" 상품을 찾지 못해 건너뜁니다.`);
-    }
-  }
-
-  async function clickOrderListReviewBtnAndProceed(targetBtn, task) {
-    await reportProgress('상품 발견! [리뷰 작성하기] 클릭하여 리뷰관리로 이동합니다...');
-    if (targetBtn.scrollIntoView) {
-      targetBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
-    }
-    await sleep(200);
-
-    const nextTask = { ...task, stage: 'CLICK_WRITABLE_REVIEW' };
-    await chrome.storage.local.set({ activeReviewTask: nextTask });
-
-    triggerClick(targetBtn);
-
-    // 페이지 이동 또는 SPA 전환 대기
-    for (let w = 0; w < 15; w++) {
-      await sleep(300);
-      if (
-        location.hostname.includes('my.coupang.com') ||
-        location.href.includes('productreview') ||
-        document.body?.innerText?.includes('상품 품질 리뷰')
-      ) {
-        isRunningStage = false;
-        await checkAndRunTask();
-        return;
-      }
-    }
-  }
-
-  // [Stage 2] 이동한 리뷰관리 페이지(4번째 사진)에서 맨 위 첫 번째 [리뷰 작성하기] 버튼 한 번 더 클릭
-  async function executeClickWritableReviewStage(task) {
-    await reportProgress('리뷰관리 페이지 로딩 대기 중...');
-    await sleep(700);
-
-    // 이미 작성 폼으로 바로 진입한 경우 Stage 3로 직행
-    if (document.body?.innerText?.includes('상품 품질 리뷰')) {
+    // 만약 현재 화면에 이미 "상품 품질 리뷰" 작성 폼이 열려있다면 바로 Stage 2로 전환
+    if (document.body.innerText.includes('상품 품질 리뷰')) {
       const updated = { ...task, stage: 'FILL_FORM' };
       await chrome.storage.local.set({ activeReviewTask: updated });
       await executeFillFormStage(updated);
       return;
     }
 
-    let firstWriteBtn = null;
-    for (let i = 0; i < 20; i++) {
-      if (document.body?.innerText?.includes('상품 품질 리뷰')) {
-        const updated = { ...task, stage: 'FILL_FORM' };
-        await chrome.storage.local.set({ activeReviewTask: updated });
-        await executeFillFormStage(updated);
-        return;
-      }
+    // 만약 "작성한 리뷰" 탭에 있다면 "리뷰 작성" 탭 클릭
+    const allClickables = Array.from(document.querySelectorAll('a, button, li, div, span'));
+    const writeTab = allClickables.find((el) => {
+      const txt = (el.innerText || '').trim();
+      return /^리뷰\s*작성(\s*\d+.*)?$/.test(txt) && el.children.length <= 2;
+    });
+    if (writeTab && location.href.includes('wroteReviews')) {
+      triggerClick(writeTab);
+      await sleep(900);
+    }
 
-      // 1순위: 쿠팡 리뷰관리 전용 클래스 버튼 (ul#order_based_writables 내부 최상단)
-      const exactBtns = Array.from(
-        document.querySelectorAll(
-          '#order_based_writables button.my-review__writable__write-btn, button.my-review__writable__write-btn, .js_reviewWritableWriteBtn'
-        )
-      ).filter((el) => el.offsetParent !== null);
-
-      if (exactBtns.length > 0) {
-        firstWriteBtn = exactBtns[0];
+    // 초기 목록 렌더링 대기 (최대 3.5초 동안 첫 번째 [리뷰 작성하기] 버튼 또는 빈 목록 문구 대기)
+    for (let w = 0; w < 7; w++) {
+      if (getVisibleWriteButtons().length > 0) break;
+      const bodyTxt = document.body?.innerText || '';
+      if (
+        bodyTxt.includes('작성 가능한 리뷰가 없습니다') ||
+        bodyTxt.includes('작성할 리뷰가 없습니다')
+      ) {
         break;
       }
-
-      // 2순위: 본문 영역 내 '리뷰 작성하기' 텍스트 버튼
-      const fallbackBtns = Array.from(
-        document.querySelectorAll('button, a, div[role="button"], input[type="button"]')
-      ).filter((el) => {
-        if (el.offsetParent === null) return false;
-        if (el.closest('header, footer, #header, #footer, .my-area-left')) return false;
-        const txt = (el.innerText || el.value || '').trim();
-        return txt === '리뷰 작성하기';
-      });
-
-      if (fallbackBtns.length > 0) {
-        firstWriteBtn = fallbackBtns[0];
-        break;
-      }
-
       await sleep(500);
     }
 
-    if (!firstWriteBtn) {
-      await skipTask('리뷰관리 화면에서 [리뷰 작성하기] 버튼을 찾지 못해 건너뜁니다.');
-      return;
-    }
+    const maxScrolls = 20;
+    const searchTargetName = (task.productName || '').split(/[,，]/)[0].trim() || task.productName;
+    let reachedBottomOnce = false;
 
-    await reportProgress('최상단 [리뷰 작성하기] 클릭! 리뷰 작성 폼을 엽니다...');
-    firstWriteBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(200);
+    for (let attempt = 1; attempt <= maxScrolls; attempt++) {
+      await reportProgress(`상품 찾는 중... (${attempt}회차 스크롤) "${searchTargetName.slice(0, 18)}"`);
 
-    const nextTask = { ...task, stage: 'FILL_FORM' };
-    await chrome.storage.local.set({ activeReviewTask: nextTask });
+      const writeButtons = getVisibleWriteButtons();
 
-    triggerClick(firstWriteBtn);
+      // 작성 가능한 리뷰가 아예 0개면 스크롤할 필요 없이 즉시 종료
+      if (writeButtons.length === 0) {
+        break;
+      }
 
-    // AJAX 폼 전환 또는 URL 전환 대기
-    for (let w = 0; w < 15; w++) {
-      await sleep(300);
-      const hasSubmit = Array.from(
-        document.querySelectorAll('button, a, div[role="button"], input[type="submit"]')
-      ).some((el) => el.offsetParent !== null && (el.innerText || el.value || '').trim() === '등록하기');
+      // 1순위: 전체 상품명(옵션 포함) 완전 일치 카드 탐색 -> 2순위: 핵심 상품명(isProductNameMatch) 탐색
+      const normFullWeb = normalizeText(task.productName);
+      let matchedBtn = null;
+      let matchedCard = null;
 
-      if (location.href.includes('register') || document.body?.innerText?.includes('상품 품질 리뷰') || hasSubmit) {
-        isRunningStage = false;
-        await checkAndRunTask();
+      if (normFullWeb.length >= 4) {
+        for (const btn of writeButtons) {
+          const card =
+            btn.closest('li, tr, article, [class*="list"], [class*="item"]') ||
+            btn.parentElement?.parentElement ||
+            btn.parentElement;
+          const cardText = card ? card.innerText || '' : '';
+          if (normalizeText(cardText).includes(normFullWeb)) {
+            matchedBtn = btn;
+            matchedCard = card;
+            break;
+          }
+        }
+      }
+
+      if (!matchedBtn) {
+        for (const btn of writeButtons) {
+          const card =
+            btn.closest('li, tr, article, [class*="list"], [class*="item"]') ||
+            btn.parentElement?.parentElement ||
+            btn.parentElement;
+          const cardText = card ? card.innerText || '' : '';
+          if (isProductNameMatch(task.productName, cardText)) {
+            matchedBtn = btn;
+            matchedCard = card;
+            break;
+          }
+        }
+      }
+
+      if (matchedBtn) {
+        await reportProgress('상품 발견! 리뷰 작성 화면으로 이동합니다...');
+        if (matchedCard && matchedCard.scrollIntoView) {
+          matchedCard.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+        await sleep(350);
+
+        const nextTask = { ...task, stage: 'FILL_FORM', detectedAccountName: detectedName };
+        await chrome.storage.local.set({ activeReviewTask: nextTask });
+
+        triggerClick(matchedBtn);
+
+        for (let w = 0; w < 12; w++) {
+          await sleep(300);
+          if (location.href.includes('register') || document.body.innerText.includes('상품 품질 리뷰')) {
+            isRunningStage = false;
+            await checkAndRunTask();
+            return;
+          }
+        }
         return;
       }
+
+      // ===== [맨 밑 도달 자체 검사 로직] =====
+      const writableListEl = document.querySelector('#order_based_writables, [data-has-more]');
+      const hasMoreAttr = writableListEl?.getAttribute('data-has-more');
+
+      // 쿠팡 DOM이 data-has-more="false"(추가 로딩할 페이지 없음)이고 이미 1회 이상 끝까지 확인했다면 즉시 중단!
+      if (hasMoreAttr === 'false' && reachedBottomOnce) {
+        break;
+      }
+
+      const prevBtnCount = writeButtons.length;
+      const prevItemCount = document.querySelectorAll(
+        'li.my-review__writable__list, li[class*="writable"]'
+      ).length;
+      const prevScrollHeight = document.documentElement.scrollHeight;
+
+      // 맨 아래로 스크롤하여 추가 로딩 유도
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+      await sleep(700);
+
+      // 만약 쿠팡 리스트가 현재 추가 데이터를 불러오는 중(data-loading-status="loading")이면 완료까지 대기
+      for (let l = 0; l < 5; l++) {
+        const status = writableListEl?.getAttribute('data-loading-status');
+        if (status && status.toLowerCase().includes('load')) {
+          await sleep(220);
+        } else {
+          break;
+        }
+      }
+
+      const newBtnCount = getVisibleWriteButtons().length;
+      const newItemCount = document.querySelectorAll(
+        'li.my-review__writable__list, li[class*="writable"]'
+      ).length;
+      const newScrollHeight = document.documentElement.scrollHeight;
+      const nowHasMore = writableListEl?.getAttribute('data-has-more');
+
+      // 스크롤 후에도 새 항목이 전혀 늘어나지 않았고 페이지 높이도 그대로인 경우 -> 맨 밑 도달!
+      if (newBtnCount === prevBtnCount && newItemCount === prevItemCount && newScrollHeight <= prevScrollHeight) {
+        if (nowHasMore === 'false' || reachedBottomOnce) {
+          // 마지막으로 새로 렌더링된 카드가 없는지 1회만 더 루프 상단에서 확인 후 종료하도록 플래그 설정
+          if (reachedBottomOnce) break;
+          reachedBottomOnce = true;
+          continue;
+        }
+
+        // 네트워크 지연 가능성을 고려해 0.45초만 한 번 더 기다려보고 여전히 그대로면 즉시 종료!
+        await sleep(450);
+        const retryBtnCount = getVisibleWriteButtons().length;
+        const retryScrollHeight = document.documentElement.scrollHeight;
+        if (retryBtnCount === prevBtnCount && retryScrollHeight <= prevScrollHeight) {
+          break;
+        }
+      }
+
+      if (nowHasMore === 'false') {
+        reachedBottomOnce = true;
+      }
     }
+
+    await skipTask(
+      `쿠팡 [리뷰 작성] 목록 끝까지 확인했으나 "${searchTargetName.slice(0, 24)}" 상품을 찾지 못해 건너뜁니다. (배송중 또는 이미 작성 완료)`
+    );
   }
 
   // 별점 5점 클릭 헬퍼
@@ -676,7 +533,6 @@
       if (radio.name && radio.name.trim()) {
         key = `name:${radio.name.trim()}`;
       } else {
-        // name 속성이 없는 경우 2~7개 라디오를 묶고 있는 가장 가까운 상위 컨테이너 기준 그룹화
         let anc = radio.parentElement;
         while (anc && anc !== document.body) {
           const cnt = anc.querySelectorAll('input[type="radio"]').length;
@@ -730,12 +586,10 @@
         };
       });
 
-      // 질문 텍스트 추출
       let questionText = '';
       const lca = getLowestCommonAncestor(options.map((o) => o.clickEl));
 
       if (lca) {
-        // 1순위: 옵션 리스트 컨테이너 바로 위 형제 요소 (예: <p>실제 사용해보니 견고한가요?</p> + <ul>...</ul>)
         const prevSib = lca.previousElementSibling;
         if (prevSib && prevSib.querySelectorAll('input[type="radio"]').length === 0) {
           const t = (prevSib.innerText || '').replace(/\s+/g, ' ').trim();
@@ -744,7 +598,6 @@
           }
         }
 
-        // 2순위: lca 또는 상위 블록 내부에서 첫 번째 옵션 이전에 등장하는 제목 텍스트 요소
         if (!questionText) {
           const searchRoot =
             lca.parentElement &&
@@ -778,7 +631,6 @@
       });
     }
 
-    // 만약 input[type="radio"] 기반 그룹이 전혀 없다면 role="radiogroup" 커스텀 라디오 탐색
     if (groups.length === 0) {
       const customGroups = Array.from(document.querySelectorAll('[role="radiogroup"]')).filter(
         (g) => g.offsetParent !== null
@@ -852,7 +704,6 @@
       return positiveIndices[0];
     }
 
-    // 애매한 문항은 Gemini AI 판단으로 넘김
     return null;
   }
 
@@ -863,11 +714,9 @@
       /(별로|부실|불편|아쉬|아쉽|나빠|나쁨|약해|약함|떨어|부족|느려|느림|시끄|비싸|어려|힘들|실망|최악|비추|안\s*좋|안\s*맞|안\s*돼|안\s*되|잘\s*안|못\s*해)/;
     const NEUTRAL_RE = /^(보통이에요|보통입니다|보통|그저\s*그래요|그저\s*그래)$/;
 
-    // '적당해요/적당히'가 있으면 우선 선택 (단맛/무게감/향 강도 등 중립-적정형 질문 대비)
     const moderateIdx = opts.findIndex((o) => /적당/.test(o) && !NEGATIVE_RE.test(o));
     if (moderateIdx !== -1) return moderateIdx;
 
-    // 부정·보통이 아닌 첫 번째 보기 선택
     const nonNegIdx = opts.findIndex((o) => !NEGATIVE_RE.test(o) && !NEUTRAL_RE.test(o));
     return nonNegIdx !== -1 ? nonNegIdx : 0;
   }
@@ -925,7 +774,6 @@
       }
     }
 
-    // 로컬 규칙으로 판별이 애매한 문항이 있을 때만 Gemini AI 호출
     if (ambiguousPayload.length > 0) {
       await reportProgress(`설문 라디오 항목 AI 판단 중 (${ambiguousPayload.length}문항)...`);
       try {
@@ -1003,7 +851,7 @@
     return exactConfirms;
   }
 
-  // [Stage 3] 상품 품질 리뷰 폼 작성 (별점 5점 + 객관식 라디오 긍정 선택 + 리뷰타입별 상세리뷰 + 등록하기 클릭)
+  // [Stage 2] 상품 품질 리뷰 폼 작성 (별점 5점 + 객관식 라디오 긍정 선택 + 리뷰타입별 상세리뷰 + 등록하기 클릭)
   async function executeFillFormStage(task) {
     if (hasClickedSubmitOnThisPage) {
       console.log('[쿠팡매니저] 이미 등록하기가 실행되었습니다.');
@@ -1180,7 +1028,7 @@
     });
   }
 
-  // [Stage 4] 작성한 리뷰 탭에서 최상단 li.my-review__wrote__list 영역 캡처 및 저장
+  // [Stage 3] 작성한 리뷰 탭에서 최상단 li.my-review__wrote__list 영역 캡처 및 저장
   async function executeCaptureStage(task) {
     await reportProgress('[작성한 리뷰] 목록 로딩 대기 중...');
 
@@ -1289,10 +1137,8 @@
 
       isRunningStage = true;
 
-      if (task.stage === 'SEARCH_ORDER_LIST') {
-        await executeSearchOrderListStage(task);
-      } else if (task.stage === 'CLICK_WRITABLE_REVIEW') {
-        await executeClickWritableReviewStage(task);
+      if (task.stage === 'FIND_PRODUCT') {
+        await executeFindProductStage(task);
       } else if (task.stage === 'FILL_FORM') {
         await executeFillFormStage(task);
       } else if (task.stage === 'CAPTURE_WROTE_REVIEW') {

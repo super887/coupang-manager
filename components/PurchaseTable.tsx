@@ -499,11 +499,16 @@ export default function PurchaseTable({
         }
 
         // 1순위: 등록된 계정 순서(최초 등록순: 1번 계정->0, 2번 계정->1, 3번 계정->2)로 고정 매칭
+        const orderedAccountHolders = Array.from(
+          new Set(
+            safeAccounts
+              .map((a) => getStr(a?.accountHolder).replace(/\s+/g, ''))
+              .filter(Boolean)
+          )
+        );
         const normalizedHolder = accountHolder.replace(/\s+/g, '');
         const accountIdx = normalizedHolder
-          ? safeAccounts.findIndex(
-              (a) => getStr(a?.accountHolder).replace(/\s+/g, '') === normalizedHolder
-            )
+          ? orderedAccountHolders.indexOf(normalizedHolder)
           : -1;
 
         let rowStyleIdx = 0;

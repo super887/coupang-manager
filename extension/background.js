@@ -1,6 +1,6 @@
 // 쿠팡매니저 크롬 확장 프로그램 Service Worker (background.js)
 
-const COUPANG_ORDER_LIST_URL = 'https://mc.coupang.com/ssr/desktop/order/list';
+const COUPANG_REVIEW_WAIT_URL = 'https://my.coupang.com/productreview/reviewable';
 
 function sanitizeFilePart(str, maxLen = 85) {
   if (!str) return '';
@@ -79,16 +79,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chatRoomName: (payload.chatRoomName || '').trim(),
         reviewType,
         reviewText: (payload.reviewText || '').trim(),
-        stage: 'SEARCH_ORDER_LIST',
-        searchAttempt: 0,
-        lastSearchedQuery: '',
+        stage: 'FIND_PRODUCT',
         startedAt: Date.now(),
       };
 
       // 스토리지에 먼저 태스크를 기록하여 탭 전환/로드 시 레이스 컨디션 방지
       await chrome.storage.local.set({ activeReviewTask: task });
 
-      // 기존 쿠팡 탭 탐색 또는 새 탭 생성 -> 주문목록(mc.coupang.com/ssr/desktop/order/list)으로 이동
+      // 기존 쿠팡 탭 탐색 또는 새 탭 생성 -> 리뷰 작성 대기 목록(my.coupang.com/productreview/reviewable)으로 이동
       let coupangTab = null;
       const existingTabs = await chrome.tabs.query({
         windowId: webWindowId,
@@ -97,13 +95,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (existingTabs.length > 0) {
         coupangTab = await chrome.tabs.update(existingTabs[0].id, {
-          url: COUPANG_ORDER_LIST_URL,
+          url: COUPANG_REVIEW_WAIT_URL,
           active: true,
         });
       } else {
         coupangTab = await chrome.tabs.create({
           windowId: webWindowId,
-          url: COUPANG_ORDER_LIST_URL,
+          url: COUPANG_REVIEW_WAIT_URL,
           active: true,
         });
       }

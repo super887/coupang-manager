@@ -100,6 +100,8 @@ export function clearAllUserCaches() {
   try {
     const keysToRemove = [
       'optimistic_dashboard',
+      'optimistic_accounts_and_sellers',
+      'optimistic_api_settings',
       'optimistic_accounts',
       'optimistic_sellers',
       'optimistic_stats',
