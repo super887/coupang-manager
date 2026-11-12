@@ -99,6 +99,55 @@
     }
   }
 
+  // ===== [쿠팡 렉 / 흰 화면(Blank Screen) 감지 및 자동 F5 새로고침 복구 헬퍼] =====
+  const MAX_AUTO_RELOADS = 3;
+
+  // 우리가 띄운 플로팅 배너 텍스트를 제외한 순수 쿠팡 페이지 텍스트 추출
+  function getCleanPageText() {
+    const raw = document.body?.innerText || '';
+    const bannerTxt = bannerEl?.innerText || '';
+    return (bannerTxt ? raw.replace(bannerTxt, '') : raw).replace(/\s+/g, ' ').trim();
+  }
+
+  // 화면이 완전히 하얀 빈 화면이거나 서버 일시 오류인지 판별
+  function isBlankOrBrokenPage() {
+    const text = getCleanPageText();
+    if (text.length < 30) return true;
+    if (
+      text.includes('502 Bad Gateway') ||
+      text.includes('504 Gateway Time-out') ||
+      text.includes('Service Unavailable') ||
+      text.includes('일시적인 오류') ||
+      text.includes('화면을 불러오지 못했습니다')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // 흰 화면 또는 렌더링 멈춤(렉) 감지 시 최대 3회 자동 새로고침(F5) 수행
+  async function tryAutoRefreshOnLag(task, reasonLabel) {
+    const reloadCount = (task.reloadCount || 0) + 1;
+    if (reloadCount > MAX_AUTO_RELOADS) {
+      return false;
+    }
+
+    const updatedTask = {
+      ...task,
+      reloadCount,
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    };
+    await chrome.storage.local.set({ activeReviewTask: updatedTask });
+
+    await reportProgress(
+      `⚡ 쿠팡 흰 화면/렉 감지 (${reasonLabel}) → 자동 새로고침(F5) 중... (${reloadCount}/${MAX_AUTO_RELOADS})`
+    );
+    await sleep(600);
+    location.reload();
+    return true;
+  }
+
   // 쿠팡 화면에서 현재 로그인된 사용자 이름(예: "김*연" 또는 "김수연") 추출
   function detectCoupangUserName() {
     if (document.body?.innerText?.includes('찾을 수 없는 페이지')) {
@@ -313,7 +362,7 @@
     // 초기 목록 렌더링 대기 (최대 3.5초 동안 첫 번째 [리뷰 작성하기] 버튼 또는 빈 목록 문구 대기)
     for (let w = 0; w < 7; w++) {
       if (getVisibleWriteButtons().length > 0) break;
-      const bodyTxt = document.body?.innerText || '';
+      const bodyTxt = getCleanPageText();
       if (
         bodyTxt.includes('작성 가능한 리뷰가 없습니다') ||
         bodyTxt.includes('작성할 리뷰가 없습니다')
@@ -321,6 +370,20 @@
         break;
       }
       await sleep(500);
+    }
+
+    // 만약 3.5초 후에도 [리뷰 작성하기] 버튼이 없고 '작성 가능한 리뷰가 없습니다' 문구도 없다면 흰 화면(렉)으로 판정!
+    if (getVisibleWriteButtons().length === 0) {
+      const checkTxt = getCleanPageText();
+      const isGenuineEmpty =
+        checkTxt.includes('작성 가능한 리뷰가 없습니다') ||
+        checkTxt.includes('작성할 리뷰가 없습니다');
+
+      if (!isGenuineEmpty) {
+        if (await tryAutoRefreshOnLag(task, '리뷰목록 흰 화면/로딩 멈춤')) {
+          return;
+        }
+      }
     }
 
     const maxScrolls = 30;
@@ -382,18 +445,28 @@
         }
         await sleep(350);
 
-        const nextTask = { ...task, stage: 'FILL_FORM', detectedAccountName: detectedName };
+        const nextTask = {
+          ...task,
+          stage: 'FILL_FORM',
+          reloadCount: 0,
+          detectedAccountName: detectedName,
+        };
         await chrome.storage.local.set({ activeReviewTask: nextTask });
 
         triggerClick(matchedBtn);
 
-        for (let w = 0; w < 12; w++) {
+        for (let w = 0; w < 15; w++) {
           await sleep(300);
           if (location.href.includes('register') || document.body.innerText.includes('상품 품질 리뷰')) {
             isRunningStage = false;
             await checkAndRunTask();
             return;
           }
+        }
+
+        // 4.5초가 지나도 화면 전환이 안 되거나 흰 화면이 뜬 경우 자동 F5 새로고침!
+        if (await tryAutoRefreshOnLag(nextTask, '작성화면 전환 멈춤')) {
+          return;
         }
         return;
       }
@@ -848,9 +921,9 @@
 
     await reportProgress('리뷰 작성 폼 로딩 대기 중...');
 
-    // 최대 10초 동안 폼([등록하기] 버튼) 등장 대기
+    // 최대 6초(0.5초 x 12회) 동안 폼([등록하기] 버튼) 등장 대기
     let submitBtn = null;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 12; i++) {
       const buttons = Array.from(
         document.querySelectorAll('button, a, div[role="button"], input[type="button"], input[type="submit"]')
       );
@@ -863,6 +936,19 @@
     }
 
     if (!submitBtn) {
+      // 만약 F5 새로고침 후 다시 [리뷰 작성] 목록 페이지(reviewable)로 돌아온 상태라면 Stage 1로 복귀하여 다시 상품 클릭!
+      if (!location.href.includes('register') && getVisibleWriteButtons().length > 0) {
+        const backTask = { ...task, stage: 'FIND_PRODUCT' };
+        await chrome.storage.local.set({ activeReviewTask: backTask });
+        await executeFindProductStage(backTask);
+        return;
+      }
+
+      // 흰 화면이거나 폼이 안 뜬 경우 자동 F5 새로고침 (최대 3회)
+      if (await tryAutoRefreshOnLag(task, '리뷰 작성폼 흰 화면/렉')) {
+        return;
+      }
+
       await failTask('쿠팡 리뷰 작성 폼([등록하기] 버튼)을 찾지 못했습니다.');
       return;
     }
@@ -895,6 +981,9 @@
         textareas[0];
 
       if (!reviewTextarea) {
+        if (await tryAutoRefreshOnLag(task, '상세리뷰 입력창 누락/렉')) {
+          return;
+        }
         await failTask('상세 리뷰 입력창(textarea)을 찾지 못했습니다.');
         return;
       }
@@ -911,7 +1000,7 @@
     // [합의 사항] 한줄 요약 칸은 입력하지 않고 빈칸 유지!
 
     // 제출 직전 다음 단계(CAPTURE_WROTE_REVIEW)로 상태 잠금 및 중복 클릭 원천 차단
-    const nextTask = { ...task, stage: 'CAPTURE_WROTE_REVIEW' };
+    const nextTask = { ...task, stage: 'CAPTURE_WROTE_REVIEW', reloadCount: 0 };
     await chrome.storage.local.set({ activeReviewTask: nextTask });
 
     hasClickedSubmitOnThisPage = true;
@@ -1051,10 +1140,20 @@
         }
       }
 
+      // 6초 경과 시점에도 흰 화면이면 즉시 자동 F5 새로고침!
+      if (i === 12 && isBlankOrBrokenPage()) {
+        if (await tryAutoRefreshOnLag(task, '작성한 리뷰 흰 화면')) {
+          return;
+        }
+      }
+
       await sleep(500);
     }
 
     if (!targetLi) {
+      if (await tryAutoRefreshOnLag(task, '작성한 리뷰 목록 미표시/렉')) {
+        return;
+      }
       await failTask('작성된 리뷰 항목(li.my-review__wrote__list)을 찾지 못했습니다.');
       return;
     }
@@ -1124,6 +1223,19 @@
       }
 
       isRunningStage = true;
+
+      // 페이지 진입 직후 흰 화면(렉) 상태인지 최대 3.5초 대기 후 검사 -> 여전히 흰 화면이면 자동 F5 새로고침!
+      for (let w = 0; w < 7; w++) {
+        if (!isBlankOrBrokenPage()) break;
+        await sleep(500);
+      }
+      if (isBlankOrBrokenPage()) {
+        if (await tryAutoRefreshOnLag(task, '페이지 흰 화면')) {
+          return;
+        }
+        await failTask('쿠팡 페이지 흰 화면(렉)이 자동 새로고침(F5) 3회 후에도 복구되지 않았습니다.');
+        return;
+      }
 
       if (task.stage === 'FIND_PRODUCT') {
         await executeFindProductStage(task);

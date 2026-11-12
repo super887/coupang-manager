@@ -1,6 +1,58 @@
 // 쿠팡매니저 크롬 확장 프로그램 Service Worker (background.js)
 
 const COUPANG_REVIEW_WAIT_URL = 'https://my.coupang.com/productreview/reviewable';
+let watchdogTimer = null;
+
+function stopWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
+}
+
+function startWatchdog() {
+  stopWatchdog();
+  watchdogTimer = setInterval(async () => {
+    try {
+      const { activeReviewTask: task } = await chrome.storage.local.get('activeReviewTask');
+      if (!task || !task.coupangTabId) {
+        stopWatchdog();
+        return;
+      }
+
+      const lastActive = task.lastActivityAt || task.startedAt || Date.now();
+      const idleMs = Date.now() - lastActive;
+
+      // 15초 동안 아무 진행 응답이 없으면(쿠팡 네트워크 먹통/흰화면 멈춤) 백그라운드에서 강제 F5(새로고침)
+      if (idleMs > 15000) {
+        const bgReloadCount = (task.bgReloadCount || 0) + 1;
+        if (bgReloadCount <= 3) {
+          const updated = {
+            ...task,
+            bgReloadCount,
+            lastActivityAt: Date.now(),
+            startedAt: Date.now(),
+          };
+          await chrome.storage.local.set({ activeReviewTask: updated });
+
+          if (task.webTabId) {
+            await notifyWebTab(task.webTabId, 'REVIEW_TASK_PROGRESS', {
+              requestId: task.requestId,
+              purchaseId: task.purchaseId,
+              stepText: `⚡ 쿠팡 응답 지연(흰 화면) 감지 → 자동 새로고침(F5) 중... (${bgReloadCount}/3)`,
+            });
+          }
+
+          await chrome.tabs.reload(task.coupangTabId);
+        } else {
+          stopWatchdog();
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, 4000);
+}
 
 function sanitizeFilePart(str, maxLen = 85) {
   if (!str) return '';
@@ -80,11 +132,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         reviewType,
         reviewText: (payload.reviewText || '').trim(),
         stage: 'FIND_PRODUCT',
+        reloadCount: 0,
+        bgReloadCount: 0,
         startedAt: Date.now(),
+        lastActivityAt: Date.now(),
       };
 
       // 스토리지에 먼저 태스크를 기록하여 탭 전환/로드 시 레이스 컨디션 방지
       await chrome.storage.local.set({ activeReviewTask: task });
+      startWatchdog();
 
       // 기존 쿠팡 탭 탐색 또는 새 탭 생성 -> 리뷰 작성 대기 목록(my.coupang.com/productreview/reviewable)으로 이동
       let coupangTab = null;
@@ -204,16 +260,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 3. 작업 취소
   if (message.type === 'CANCEL_REVIEW_TASK') {
     (async () => {
+      stopWatchdog();
       await chrome.storage.local.remove('activeReviewTask');
       sendResponse({ cancelled: true });
     })();
     return true;
   }
 
-  // 4. 진행 상태 웹 탭으로 중계
+  // 4. 진행 상태 웹 탭으로 중계 (활동 시각 갱신)
   if (message.type === 'PROGRESS_REVIEW_TASK') {
     (async () => {
       const { activeReviewTask } = await chrome.storage.local.get('activeReviewTask');
+      if (activeReviewTask) {
+        activeReviewTask.lastActivityAt = Date.now();
+        await chrome.storage.local.set({ activeReviewTask });
+      }
       if (activeReviewTask?.webTabId) {
         await notifyWebTab(activeReviewTask.webTabId, 'REVIEW_TASK_PROGRESS', {
           requestId: activeReviewTask.requestId,
@@ -300,6 +361,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           conflictAction: 'uniquify',
         });
 
+        stopWatchdog();
         await chrome.storage.local.remove('activeReviewTask');
 
         if (task?.webTabId) {
@@ -326,6 +388,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             error: `이미지 저장 실패: ${err?.message || err}`,
           });
         }
+        stopWatchdog();
         await chrome.storage.local.remove('activeReviewTask');
         sendResponse({ success: false, error: err?.message || '다운로드 실패' });
       }
@@ -336,6 +399,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 7. 주문목록 미검색/배송중/기작성 등으로 인한 스킵 처리 (완료 체크 없이 다음 상품 진행)
   if (message.type === 'SKIP_REVIEW_TASK') {
     (async () => {
+      stopWatchdog();
       const { activeReviewTask: task } = await chrome.storage.local.get('activeReviewTask');
       await chrome.storage.local.remove('activeReviewTask');
 
@@ -361,6 +425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 8. 작업 실패 처리
   if (message.type === 'FAIL_REVIEW_TASK') {
     (async () => {
+      stopWatchdog();
       const { activeReviewTask: task } = await chrome.storage.local.get('activeReviewTask');
       await chrome.storage.local.remove('activeReviewTask');
 
