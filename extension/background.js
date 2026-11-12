@@ -104,10 +104,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const targetAccount = (payload.accountHolder || '').trim();
       const reviewType = (payload.reviewType || '').trim();
 
-      // [규칙 1] 팝업에 고정된 담당 계정주와 요청 계정주 비교
+      // [규칙 1] 팝업에 고정된 담당 계정주와 요청 계정주 비교 -> 다르면 에러가 아니라 즉시 스킵(skipped) 처리!
       if (assignedAccount && targetAccount && assignedAccount !== targetAccount) {
         sendResponse({
-          immediateError: `계정주 불일치! 현재 크롬 창의 담당 계정주는 [${assignedAccount}]인데, 선택한 항목은 [${targetAccount}]입니다. [${targetAccount}] 크롬 창에서 실행해주세요.`,
+          immediateSkip: true,
+          detectedAccountName: assignedAccount,
+          immediateError: `현재 연결된 계정(${assignedAccount})이 아닌 [${targetAccount}] 행이므로 건너뜁니다.`,
         });
         return;
       }
@@ -115,6 +117,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // [규칙 2] 포토 리뷰 스킵
       if (reviewType.includes('포토') || reviewType.includes('사진')) {
         sendResponse({
+          immediateSkip: true,
           immediateError: '포토/사진 리뷰는 자동 작성 제외(수동 등록) 대상입니다.',
         });
         return;
@@ -370,6 +373,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             purchaseId: task.purchaseId,
             success: true,
             fileName: fullPath,
+            detectedAccountName: message.detectedAccountName || task?.detectedAccountName || '',
           });
           try {
             await chrome.tabs.update(task.webTabId, { active: true });
@@ -409,7 +413,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           purchaseId: task.purchaseId,
           success: false,
           skipped: true,
-          error: message.reason || '주문목록에 작성 가능한 리뷰가 없어 건너뜁니다.',
+          detectedAccountName: message.detectedAccountName || task?.detectedAccountName || '',
+          error: message.reason || '작성 가능한 리뷰가 없어 건너뜁니다.',
         });
         try {
           await chrome.tabs.update(task.webTabId, { active: true });

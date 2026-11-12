@@ -73,13 +73,14 @@
     }
   }
 
-  async function skipTask(reasonMsg) {
+  async function skipTask(reasonMsg, detectedAccountName = '') {
     hideBanner();
     isRunningStage = false;
     try {
       await chrome.runtime.sendMessage({
         type: 'SKIP_REVIEW_TASK',
         reason: reasonMsg,
+        detectedAccountName,
       });
     } catch {
       // ignore
@@ -331,11 +332,12 @@
       return;
     }
 
-    // 계정주 검증
+    // 계정주 검증: 현재 쿠팡 로그인 계정과 다른 계정주 행이면 리뷰리스트 탐색 없이 즉시 스킵(패스)!
     const detectedName = detectCoupangUserName();
     if (task.accountHolder && detectedName && !isAccountNameMatch(task.accountHolder, detectedName)) {
-      await failTask(
-        `계정주 불일치! 현재 쿠팡 로그인 계정(${detectedName})과 선택한 상품의 계정주(${task.accountHolder})가 다릅니다.`
+      await skipTask(
+        `현재 쿠팡 로그인 계정(${detectedName})이 아닌 [${task.accountHolder}] 상품이므로 건너뜁니다.`,
+        detectedName
       );
       return;
     }

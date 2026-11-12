@@ -15,6 +15,21 @@ import { splitReviewCandidates, extractCleanReview } from '@/lib/review-parser';
 // 🛡️ 절대 안 터지는 안전 변환 함수들
 const getStr = (val: any) => (val === null || val === undefined ? '' : String(val));
 
+// 연결된 계정주("김수연" 또는 쿠팡 마스킹 이름 "김*연")와 행의 계정주가 일치하는지 판별
+const isAccountHolderMatch = (rowHolder: string, connectedAccount: string): boolean => {
+  const exp = getStr(rowHolder).replace(/\s+/g, '').replace(/님$/, '');
+  const det = getStr(connectedAccount).replace(/\s+/g, '').replace(/님$/, '');
+  if (!exp || !det) return true;
+  if (exp === det) return true;
+  if (det.includes('*')) {
+    if (exp[0] !== det[0]) return false;
+    const lastDet = det[det.length - 1];
+    if (lastDet !== '*' && exp[exp.length - 1] !== lastDet) return false;
+    return true;
+  }
+  return exp.includes(det) || det.includes(exp);
+};
+
 // ✨ 리액트 환경에서 완벽하게 격리된 쿠팡 파트너스 전용 컴포넌트 (iframe 샌드박스)
 const CoupangBanner = () => {
   const iframeHtml = `
@@ -114,7 +129,13 @@ export default function PurchaseTable({
   });
   const cancelAutoRegRef = useRef(false);
   const pendingExtResolverRef = useRef<
-    ((res: { success: boolean; skipped?: boolean; error?: string; fileName?: string }) => void) | null
+    ((res: {
+      success: boolean;
+      skipped?: boolean;
+      error?: string;
+      fileName?: string;
+      detectedAccountName?: string;
+    }) => void) | null
   >(null);
 
   // 토스트 알림 상태
@@ -194,6 +215,7 @@ export default function PurchaseTable({
             skipped: Boolean(payload?.skipped),
             error: payload?.error,
             fileName: payload?.fileName,
+            detectedAccountName: payload?.detectedAccountName,
           });
         }
       } else if (type === 'CP_EXT_SURVEY_AI_REQ') {
@@ -467,6 +489,7 @@ export default function PurchaseTable({
       skipped?: boolean;
       error?: string;
       fileName?: string;
+      detectedAccountName?: string;
     }> => {
       const productName = getStr(row.productName).trim();
       const accountHolder = getStr(row.accountHolder).trim();
@@ -478,6 +501,19 @@ export default function PurchaseTable({
           success: false,
           skipped: true,
           error: '이미 리뷰 [작성] 체크가 완료된 상품입니다.',
+        };
+      }
+
+      // [규칙 0-1] 현재 확장 프로그램에 연결된 계정주와 행의 계정주가 다르면 쿠팡 탐색 없이 즉시 패스
+      if (
+        assignedExtAccount &&
+        accountHolder &&
+        !isAccountHolderMatch(accountHolder, assignedExtAccount)
+      ) {
+        return {
+          success: false,
+          skipped: true,
+          error: `현재 연결된 계정(${assignedExtAccount})이 아닌 [${accountHolder}] 행이므로 건너뜁니다.`,
         };
       }
 
@@ -572,7 +608,7 @@ export default function PurchaseTable({
         );
       });
     },
-    [localData, safeAccounts]
+    [localData, safeAccounts, assignedExtAccount]
   );
 
   // 🚀 단건 [자동등록] 버튼 핸들러
@@ -589,6 +625,19 @@ export default function PurchaseTable({
 
     if (row.isReviewWritten) {
       showToast('ℹ️ 이미 리뷰 [작성] 체크가 되어 있는 상품입니다. (자동 작성 제외)', 'info');
+      return;
+    }
+
+    const rowHolder = getStr(row.accountHolder).trim();
+    if (
+      assignedExtAccount &&
+      rowHolder &&
+      !isAccountHolderMatch(rowHolder, assignedExtAccount)
+    ) {
+      showToast(
+        `ℹ️ 현재 연결된 계정주(${assignedExtAccount})와 다른 계정주(${rowHolder}) 상품이므로 건너뜁니다.`,
+        'info'
+      );
       return;
     }
 
@@ -655,23 +704,46 @@ export default function PurchaseTable({
       return;
     }
 
-    // 이미 리뷰오토 페이지에서 [작성] 체크된 상품은 아예 쿠팡 리뷰리스트 검수 대상에서 제외!
-    const alreadyWrittenCount = selectedList.filter((r) => Boolean(r.isReviewWritten)).length;
-    const targetList = selectedList.filter((r) => !r.isReviewWritten);
+    // 1. 이미 리뷰오토 페이지에서 [작성] 체크된 상품 제외
+    const unwrittenList = selectedList.filter((r) => !r.isReviewWritten);
+    const alreadyWrittenCount = selectedList.length - unwrittenList.length;
 
-    if (targetList.length === 0) {
+    if (unwrittenList.length === 0) {
       showToast('ℹ️ 선택하신 항목은 모두 이미 [작성] 체크가 되어 있어 건너뜁니다.', 'info');
       return;
     }
 
-    const excludeNotice =
-      alreadyWrittenCount > 0
-        ? `\n- 이미 [작성] 체크된 ${alreadyWrittenCount}건은 검수 없이 자동 제외됩니다.`
-        : '';
+    // 2. 현재 연결된 계정주(예: 김수연)가 지정되어 있으면, 다른 계정주(이시온, 이현숙 등) 행은 쿠팡 탐색조차 하지 않고 즉시 제외!
+    const targetList = assignedExtAccount
+      ? unwrittenList.filter((r) => {
+          const holder = getStr(r.accountHolder).trim();
+          return !holder || isAccountHolderMatch(holder, assignedExtAccount);
+        })
+      : unwrittenList;
+    const otherAccountCount = unwrittenList.length - targetList.length;
+
+    if (targetList.length === 0) {
+      showToast(
+        `ℹ️ 선택하신 항목 중 현재 연결된 계정주(${assignedExtAccount})의 미작성 상품이 없어 건너뜁니다.`,
+        'info'
+      );
+      return;
+    }
+
+    const excludeNotices: string[] = [];
+    if (alreadyWrittenCount > 0) {
+      excludeNotices.push(`- 이미 [작성] 체크된 ${alreadyWrittenCount}건은 검수 없이 자동 제외됩니다.`);
+    }
+    if (otherAccountCount > 0) {
+      excludeNotices.push(
+        `- 현재 연결된 계정주(${assignedExtAccount}) 외 다른 계정주 ${otherAccountCount}건은 자동 스킵됩니다.`
+      );
+    }
+    const excludeNoticeStr = excludeNotices.length > 0 ? `\n${excludeNotices.join('\n')}` : '';
 
     if (
       !confirm(
-        `선택하신 항목 중 미작성 [${targetList.length}건]에 대해 쿠팡 리뷰 자동 등록 및 인증 캡처를 시작할까요?${excludeNotice}\n- 포토 리뷰는 자동으로 건너뜁니다.\n- 별점 타입은 별점 5점 + 객관식 설문만 등록합니다.\n- 항목 간 3초 간격으로 순차 진행됩니다.`
+        `선택하신 항목 중 대상 [${targetList.length}건]에 대해 쿠팡 리뷰 자동 등록 및 인증 캡처를 시작할까요?${excludeNoticeStr}\n- 포토 리뷰는 자동으로 건너뜁니다.\n- 별점 타입은 별점 5점 + 객관식 설문만 등록합니다.\n- 항목 간 3초 간격으로 순차 진행됩니다.`
       )
     ) {
       return;
@@ -683,23 +755,41 @@ export default function PurchaseTable({
     let successCount = 0;
     const skippedItems: string[] = [];
     const failedItems: string[] = [];
+    let activeCoupangAccount = assignedExtAccount;
 
     for (let i = 0; i < targetList.length; i++) {
       if (cancelAutoRegRef.current) break;
 
       const row = targetList[i];
       const title = getStr(row.productName).trim() || '(상품명 없음)';
+      const rowHolder = getStr(row.accountHolder).trim();
+
+      // [자동감지 모드 대응] 첫 상품에서 쿠팡 로그인 계정(예: 김*연)이 감지된 이후에는 다른 계정주 행을 0초 만에 즉시 스킵!
+      if (
+        activeCoupangAccount &&
+        rowHolder &&
+        !isAccountHolderMatch(rowHolder, activeCoupangAccount)
+      ) {
+        skippedItems.push(
+          `• ${title.slice(0, 20)} (${rowHolder}): 연결된 계정(${activeCoupangAccount}) 아님 → 스킵`
+        );
+        continue;
+      }
 
       setAutoRegState({
         current: i + 1,
         total: targetList.length,
         productName: title,
-        accountHolder: getStr(row.accountHolder) || '자동감지',
+        accountHolder: rowHolder || '자동감지',
         stepText: '쿠팡 탭에서 상품 탐색 및 작성 준비 중...',
         activeRowId: row.id,
       });
 
       const res = await executeSingleAutoReview(row);
+
+      if (res.detectedAccountName && !activeCoupangAccount) {
+        activeCoupangAccount = res.detectedAccountName;
+      }
 
       if (res.success) {
         successCount++;

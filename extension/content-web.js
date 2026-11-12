@@ -5,7 +5,7 @@
 
   // 웹 페이지가 확장 프로그램 설치 여부를 즉시 감지할 수 있도록 DOM 속성 주입
   document.documentElement.setAttribute('data-coupang-ext-installed', 'true');
-  document.documentElement.setAttribute('data-coupang-ext-version', '1.3.6');
+  document.documentElement.setAttribute('data-coupang-ext-version', '1.3.7');
 
   const pendingSurveyResolvers = new Map();
 
@@ -42,7 +42,7 @@
           type: 'START_REVIEW_TASK',
           payload,
         });
-        if (res && res.immediateError) {
+        if (res && (res.immediateError || res.immediateSkip)) {
           window.postMessage(
             {
               type: 'CP_EXT_REVIEW_RESULT',
@@ -50,6 +50,8 @@
                 requestId: payload?.requestId,
                 purchaseId: payload?.purchaseId,
                 success: false,
+                skipped: Boolean(res.immediateSkip),
+                detectedAccountName: res.detectedAccountName || '',
                 error: res.immediateError,
               },
             },
