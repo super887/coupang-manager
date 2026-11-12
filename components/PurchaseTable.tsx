@@ -10,7 +10,11 @@ import {
   getPaginatedPurchases,
 } from '@/app/actions/purchase';
 import { generateAiReview, selectPositiveSurveyOptions } from '@/app/actions/ai';
-import { splitReviewCandidates, extractCleanReview } from '@/lib/review-parser';
+import {
+  splitReviewCandidates,
+  extractCleanReview,
+  extractFirstSentences,
+} from '@/lib/review-parser';
 
 // 🛡️ 절대 안 터지는 안전 변환 함수들
 const getStr = (val: any) => (val === null || val === undefined ? '' : String(val));
@@ -399,7 +403,7 @@ export default function PurchaseTable({
     const targets = localData.filter(
       (r) =>
         !r.isReviewWritten &&
-        r.reviewType === '(빈)텍스트' &&
+        (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
         !r.generatedReview &&
         (r.productName || '').trim() !== ''
     );
@@ -440,7 +444,7 @@ export default function PurchaseTable({
         }
         setLocalData((prev) =>
           prev.map((r) =>
-            r.reviewType === '(빈)텍스트' &&
+            (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
             !r.generatedReview &&
             getStr(r.productName).trim() === currentProductName
               ? { ...r, generatedReview: generatedText }
@@ -585,6 +589,10 @@ export default function PurchaseTable({
           );
         }
         cleanReviewText = extractCleanReview(rawReview, rowStyleIdx);
+        // [한줄텍] 스타일인 경우 해당 계정 순번 리뷰의 앞 2문장만 추출하여 자동 등록
+        if (reviewType.includes('한줄')) {
+          cleanReviewText = extractFirstSentences(cleanReviewText, 2);
+        }
       }
 
       return new Promise((resolve) => {
@@ -1369,6 +1377,7 @@ export default function PurchaseTable({
                         >
                           <option value="(빈)별점">(빈)별점</option>
                           <option value="(빈)텍스트">(빈)텍스트</option>
+                          <option value="(빈)한줄텍">(빈)한줄텍</option>
                           <option value="(빈)포토">(빈)포토</option>
                           <option value="(빈)원고제공">(빈)원고제공</option>
                           <option value="실배">실배</option>
@@ -1382,7 +1391,8 @@ export default function PurchaseTable({
                     <td className="p-1 border-r text-center align-middle">
                       <div className="flex flex-col gap-1.5 px-1">
                         {row.reviewType === '(빈)텍스트' ||
-                        row.reviewType === '(빈)원고제공' ? (
+                        row.reviewType === '(빈)원고제공' ||
+                        getStr(row.reviewType).includes('한줄') ? (
                           !row.generatedReview ? (
                             <button
                               type="button"

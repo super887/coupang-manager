@@ -72,3 +72,28 @@ export function extractCleanReview(rawText: string | null | undefined, styleInde
   if (candidates.length === 0) return '';
   return candidates[Math.abs(styleIndex) % candidates.length];
 }
+
+/**
+ * 단일 리뷰 텍스트에서 앞 N문장(기본 2문장)만 추출 ("한줄텍" 스타일용)
+ */
+export function extractFirstSentences(
+  text: string | null | undefined,
+  maxSentences: number = 2
+): string {
+  const cleaned = (text || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+
+  const sentences = cleaned
+    .split(
+      /(?<=[.!?])\s+|(?<=(?:습니다|입니다|네요|해요|어요|아요|군요|더라고요|더라구요|같아요|좋아요|만족해요|추천해요|편해요|튼튼해요|최고예요|최고입니다|있어요|없어요|됩니다|돼요|할게요|랍니다|강추합니다|추천합니다)[.!?~]*)\s+/
+    )
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (sentences.length <= maxSentences) {
+    return cleaned;
+  }
+
+  return sentences.slice(0, maxSentences).join(' ').trim();
+}
+

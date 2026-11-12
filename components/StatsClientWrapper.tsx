@@ -92,7 +92,7 @@ export default function StatsClientWrapper() {
       let profit = 0;
       const rType = getStr(item.reviewType);
       if (rType === '(빈)별점') profit = 500;
-      else if (rType === '(빈)텍스트' || rType === '(빈)원고제공') profit = 1000;
+      else if (rType === '(빈)텍스트' || rType === '(빈)원고제공' || rType.includes('한줄')) profit = 1000;
 
       estimatedProfit += profit;
       if (item.isReviewPayback) {
