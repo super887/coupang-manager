@@ -362,6 +362,7 @@ export default function PurchaseTable({
 
     const targets = localData.filter(
       (r) =>
+        !r.isReviewWritten &&
         r.reviewType === '(빈)텍스트' &&
         !r.generatedReview &&
         (r.productName || '').trim() !== ''
@@ -471,6 +472,15 @@ export default function PurchaseTable({
       const accountHolder = getStr(row.accountHolder).trim();
       const reviewType = getStr(row.reviewType).trim();
 
+      // [규칙 0] 이미 리뷰 [작성] 체크가 되어 있는 항목은 쿠팡 리뷰리스트 검수/탐색조차 하지 않고 즉시 패스
+      if (row.isReviewWritten) {
+        return {
+          success: false,
+          skipped: true,
+          error: '이미 리뷰 [작성] 체크가 완료된 상품입니다.',
+        };
+      }
+
       if (!productName) {
         return { success: false, skipped: true, error: '상품명이 비어 있습니다.' };
       }
@@ -577,6 +587,11 @@ export default function PurchaseTable({
       return;
     }
 
+    if (row.isReviewWritten) {
+      showToast('ℹ️ 이미 리뷰 [작성] 체크가 되어 있는 상품입니다. (자동 작성 제외)', 'info');
+      return;
+    }
+
     const reviewType = getStr(row.reviewType).trim();
     if (reviewType.includes('포토') || reviewType.includes('사진')) {
       showToast('📸 포토 리뷰는 수동 등록 대상입니다. (자동 작성 제외)', 'info');
@@ -640,9 +655,23 @@ export default function PurchaseTable({
       return;
     }
 
+    // 이미 리뷰오토 페이지에서 [작성] 체크된 상품은 아예 쿠팡 리뷰리스트 검수 대상에서 제외!
+    const alreadyWrittenCount = selectedList.filter((r) => Boolean(r.isReviewWritten)).length;
+    const targetList = selectedList.filter((r) => !r.isReviewWritten);
+
+    if (targetList.length === 0) {
+      showToast('ℹ️ 선택하신 항목은 모두 이미 [작성] 체크가 되어 있어 건너뜁니다.', 'info');
+      return;
+    }
+
+    const excludeNotice =
+      alreadyWrittenCount > 0
+        ? `\n- 이미 [작성] 체크된 ${alreadyWrittenCount}건은 검수 없이 자동 제외됩니다.`
+        : '';
+
     if (
       !confirm(
-        `선택하신 [${selectedList.length}건]에 대해 쿠팡 리뷰 자동 등록 및 인증 캡처를 시작할까요?\n\n- 포토 리뷰는 자동으로 건너뜁니다.\n- 별점 타입은 별점 5점만 등록합니다.\n- 항목 간 3초 간격으로 순차 진행됩니다.`
+        `선택하신 항목 중 미작성 [${targetList.length}건]에 대해 쿠팡 리뷰 자동 등록 및 인증 캡처를 시작할까요?${excludeNotice}\n- 포토 리뷰는 자동으로 건너뜁니다.\n- 별점 타입은 별점 5점 + 객관식 설문만 등록합니다.\n- 항목 간 3초 간격으로 순차 진행됩니다.`
       )
     ) {
       return;
@@ -655,15 +684,15 @@ export default function PurchaseTable({
     const skippedItems: string[] = [];
     const failedItems: string[] = [];
 
-    for (let i = 0; i < selectedList.length; i++) {
+    for (let i = 0; i < targetList.length; i++) {
       if (cancelAutoRegRef.current) break;
 
-      const row = selectedList[i];
+      const row = targetList[i];
       const title = getStr(row.productName).trim() || '(상품명 없음)';
 
       setAutoRegState({
         current: i + 1,
-        total: selectedList.length,
+        total: targetList.length,
         productName: title,
         accountHolder: getStr(row.accountHolder) || '자동감지',
         stepText: '쿠팡 탭에서 상품 탐색 및 작성 준비 중...',
@@ -682,7 +711,7 @@ export default function PurchaseTable({
       }
 
       // 다음 항목이 남아있고 취소되지 않았으면 대기 (스킵된 항목은 즉시 다음 상품 진행)
-      if (i < selectedList.length - 1 && !cancelAutoRegRef.current) {
+      if (i < targetList.length - 1 && !cancelAutoRegRef.current) {
         const waitMs = res.skipped ? 600 : 3000;
         setAutoRegState((prev) => ({
           ...prev,
