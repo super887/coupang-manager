@@ -5,7 +5,7 @@
 
   // 웹 페이지가 확장 프로그램 설치 여부를 즉시 감지할 수 있도록 DOM 속성 주입
   document.documentElement.setAttribute('data-coupang-ext-installed', 'true');
-  document.documentElement.setAttribute('data-coupang-ext-version', '1.3.7');
+  document.documentElement.setAttribute('data-coupang-ext-version', '1.3.8');
 
   const pendingSurveyResolvers = new Map();
 

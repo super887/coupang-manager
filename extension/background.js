@@ -145,18 +145,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await chrome.storage.local.set({ activeReviewTask: task });
       startWatchdog();
 
-      // 기존 쿠팡 탭 탐색 또는 새 탭 생성 -> 리뷰 작성 대기 목록(my.coupang.com/productreview/reviewable)으로 이동
+      // 기존 쿠팡 탭 탐색 또는 새 탭 생성
+      // - 만약 이전 상품을 못 찾아서 이미 리뷰 작성 대기 목록(productreview/reviewable)에 머물러 있다면,
+      //   페이지를 새로고침(재진입)하지 않고 이미 로드된 목록 상태에서 바로 다음 상품을 찾는다!
+      // - 만약 이전 상품을 작성 완료하여 작성한 리뷰(wroteReviews) 페이지 등에 있다면 다시 리뷰 작성 대기 목록으로 이동한다.
       let coupangTab = null;
+      let reusedLoadedReviewableTab = false;
       const existingTabs = await chrome.tabs.query({
         windowId: webWindowId,
         url: ['https://my.coupang.com/*', 'https://mc.coupang.com/*'],
       });
 
       if (existingTabs.length > 0) {
-        coupangTab = await chrome.tabs.update(existingTabs[0].id, {
-          url: COUPANG_REVIEW_WAIT_URL,
-          active: true,
-        });
+        const currentUrl = existingTabs[0].url || '';
+        if (currentUrl.includes('productreview/reviewable')) {
+          coupangTab = await chrome.tabs.update(existingTabs[0].id, {
+            active: true,
+          });
+          reusedLoadedReviewableTab = true;
+        } else {
+          coupangTab = await chrome.tabs.update(existingTabs[0].id, {
+            url: COUPANG_REVIEW_WAIT_URL,
+            active: true,
+          });
+        }
       } else {
         coupangTab = await chrome.tabs.create({
           windowId: webWindowId,
@@ -167,6 +179,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       task.coupangTabId = coupangTab.id;
       await chrome.storage.local.set({ activeReviewTask: task });
+
+      if (reusedLoadedReviewableTab) {
+        try {
+          await chrome.tabs.sendMessage(coupangTab.id, { type: 'RUN_REVIEW_TASK_NOW' });
+        } catch {
+          // 만약 콘텐츠 스크립트가 아직 연결되지 않은 탭이라면 URL 이동으로 폴백
+          await chrome.tabs.update(coupangTab.id, {
+            url: COUPANG_REVIEW_WAIT_URL,
+            active: true,
+          });
+        }
+      }
 
       // MAIN world alert/confirm 무조건 가로채기 사전 주입
       try {

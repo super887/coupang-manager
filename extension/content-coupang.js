@@ -10,6 +10,7 @@
 
   let isRunningStage = false;
   let hasClickedSubmitOnThisPage = false;
+  let hasReachedTrueBottomOnThisPage = false;
   let bannerEl = null;
   let lastInterceptedAlert = '';
 
@@ -319,7 +320,7 @@
   // [Stage 1] 리뷰 작성 대기 목록(my.coupang.com/productreview/reviewable)에서 상품 탐색 (맨 밑 도달 자동 감지!)
   async function executeFindProductStage(task) {
     await reportProgress('쿠팡 로그인 및 계정주 확인 중...');
-    await sleep(600);
+    await sleep(getVisibleWriteButtons().length > 0 ? 150 : 600);
 
     if (location.hostname.includes('login.coupang.com') || document.querySelector('#login-email-input')) {
       await failTask('쿠팡 로그인이 필요합니다. 먼저 이 크롬 창에서 쿠팡에 로그인해주세요.');
@@ -473,6 +474,12 @@
         return;
       }
 
+      // 만약 이전 상품을 찾으면서 이미 이 페이지의 맨 밑바닥까지 모든 리뷰 목록을 다 로드해 둔 상태라면,
+      // 현재 화면(writeButtons 전체)에 없다는 뜻이므로 처음부터 다시 스크롤할 필요 없이 즉시 패스!
+      if (hasReachedTrueBottomOnThisPage) {
+        break;
+      }
+
       // ===== [무한 스크롤 & 맨 밑바닥 다중 재시도 감지 로직] =====
       const prevBtnCount = writeButtons.length;
       const prevScrollHeight = document.documentElement.scrollHeight;
@@ -512,6 +519,7 @@
         noNewItemsCount++;
         if (noNewItemsCount >= MAX_BOTTOM_RETRIES) {
           // 맨 밑바닥에서 3번 연속 스크롤링 및 ~1.8초 대기를 반복했는데도 더 이상 로딩이 없으면 진짜 끝!
+          hasReachedTrueBottomOnThisPage = true;
           break;
         }
       }
@@ -1252,6 +1260,15 @@
       isRunningStage = false;
     }
   }
+
+  // 백그라운드에서 페이지 새로고침 없이 다음 상품 즉시 탐색 요청 수신
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message && message.type === 'RUN_REVIEW_TASK_NOW') {
+      setTimeout(checkAndRunTask, 50);
+      sendResponse({ ok: true });
+    }
+    return false;
+  });
 
   // 페이지 진입 시 자동 체크
   if (document.readyState === 'loading') {
