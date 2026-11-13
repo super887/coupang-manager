@@ -14,6 +14,7 @@ import {
   splitReviewCandidates,
   extractCleanReview,
   extractFirstSentences,
+  isValidThreeStyleReview,
 } from '@/lib/review-parser';
 
 // 🛡️ 절대 안 터지는 안전 변환 함수들
@@ -102,10 +103,12 @@ export default function PurchaseTable({
   const [editingRows, setEditingRows] = useState<Set<string>>(new Set());
   const [modalReview, setModalReview] = useState<{
     id: string;
+    productName?: string;
     originalText: string;
     currentText: string;
     selectedStyle: number | 'all';
   } | null>(null);
+  const [isRegeneratingInModal, setIsRegeneratingInModal] = useState(false);
 
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
@@ -368,13 +371,27 @@ export default function PurchaseTable({
       return;
     }
 
+    const trimmedName = getStr(productName).trim();
+
     try {
-      const generatedText = await generateAiReview(id, productName);
+      const generatedText = await generateAiReview(id, trimmedName);
+      const sameProductUnwritten = localData.filter(
+        (r) =>
+          r.id !== id &&
+          !r.isReviewWritten &&
+          (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
+          getStr(r.productName).trim() === trimmedName &&
+          (!r.generatedReview || !isValidThreeStyleReview(getStr(r.generatedReview)))
+      );
+      for (const other of sameProductUnwritten) {
+        await updatePurchase(other.id, { generatedReview: generatedText });
+      }
+      const updatedIds = new Set([id, ...sameProductUnwritten.map((r) => r.id)]);
       setLocalData((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, generatedReview: generatedText } : r))
+        prev.map((r) => (updatedIds.has(r.id) ? { ...r, generatedReview: generatedText } : r))
       );
       await updatePurchase(id, { generatedReview: generatedText });
-      showToast('✨ AI 리뷰가 생성되었습니다!', 'success');
+      showToast('✨ 3가지 스타일 AI 리뷰가 생성되었습니다!', 'success');
     } catch (e: any) {
       const errorMsg = e?.message?.toLowerCase() || String(e).toLowerCase();
       let reason = '알 수 없는 오류';
@@ -404,7 +421,7 @@ export default function PurchaseTable({
       (r) =>
         !r.isReviewWritten &&
         (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
-        !r.generatedReview &&
+        (!r.generatedReview || !isValidThreeStyleReview(getStr(r.generatedReview))) &&
         (r.productName || '').trim() !== ''
     );
     if (targets.length === 0) return alert('현재 화면에 생성할 대상이 없습니다.');
@@ -444,8 +461,9 @@ export default function PurchaseTable({
         }
         setLocalData((prev) =>
           prev.map((r) =>
+            !r.isReviewWritten &&
             (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
-            !r.generatedReview &&
+            (!r.generatedReview || !isValidThreeStyleReview(getStr(r.generatedReview))) &&
             getStr(r.productName).trim() === currentProductName
               ? { ...r, generatedReview: generatedText }
               : r
@@ -1403,24 +1421,39 @@ export default function PurchaseTable({
                             >
                               생성
                             </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                const rawRev = getStr(row.generatedReview);
-                                setModalReview({
-                                  id: row.id,
-                                  originalText: rawRev,
-                                  currentText: rawRev,
-                                  selectedStyle: 'all',
-                                });
-                              }}
-                              className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full"
-                            >
-                              📄 보기
-                            </button>
-                          )
+                          ) : (() => {
+                            const rawRev = getStr(row.generatedReview);
+                            const isIncomplete =
+                              row.reviewType !== '(빈)원고제공' &&
+                              !isValidThreeStyleReview(rawRev);
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setModalReview({
+                                    id: row.id,
+                                    productName: getStr(row.productName),
+                                    originalText: rawRev,
+                                    currentText: rawRev,
+                                    selectedStyle: 'all',
+                                  });
+                                }}
+                                title={
+                                  isIncomplete
+                                    ? '일부 스타일이 잘렸거나 3개 미만입니다. 클릭 후 [AI 다시 생성]을 눌러 복구할 수 있습니다.'
+                                    : '생성된 AI 리뷰 확인 및 수정'
+                                }
+                                className={`${
+                                  isIncomplete
+                                    ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
+                                    : 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                                } text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full`}
+                              >
+                                {isIncomplete ? '⚠️ 보기(잘림)' : '📄 보기'}
+                              </button>
+                            );
+                          })()
                         ) : (
                           <span className="text-gray-400 text-[11px] block text-center py-1.5">
                             -
@@ -1576,12 +1609,17 @@ export default function PurchaseTable({
       {modalReview && (() => {
         const candidates = splitReviewCandidates(modalReview.originalText);
         const hasMultiple = candidates.length > 1;
+        const isCurrentIncomplete = !isValidThreeStyleReview(modalReview.originalText);
+        const modalRow = localData.find((r) => r.id === modalReview.id);
+        const targetProductName = getStr(
+          modalReview.productName || modalRow?.productName
+        ).trim();
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center mb-3 border-b pb-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xl">📄</span>
                   <h3 className="text-lg font-bold text-gray-800">AI 리뷰 확인 및 선택</h3>
                   {hasMultiple && (
@@ -1589,14 +1627,89 @@ export default function PurchaseTable({
                       총 {candidates.length}개 스타일
                     </span>
                   )}
+                  {isCurrentIncomplete && modalRow?.reviewType !== '(빈)원고제공' && (
+                    <span className="bg-amber-100 text-amber-800 border border-amber-300 text-xs px-2 py-0.5 rounded-full font-bold">
+                      ⚠️ 문장 잘림/미완성 감지
+                    </span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setModalReview(null)}
-                  className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none p-1"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-2">
+                  {targetProductName && (
+                    <button
+                      type="button"
+                      disabled={isRegeneratingInModal}
+                      onClick={async () => {
+                        if (!hasApiKey) {
+                          alert(
+                            'api키가 입력 되지않았습니다. gemini api 키 설정 화면을 참고해 api 키를 입력해주세요'
+                          );
+                          return;
+                        }
+                        setIsRegeneratingInModal(true);
+                        try {
+                          const generatedText = await generateAiReview(
+                            modalReview.id,
+                            targetProductName
+                          );
+                          const sameProductRows = localData.filter(
+                            (r) =>
+                              !r.isReviewWritten &&
+                              (r.reviewType === '(빈)텍스트' ||
+                                getStr(r.reviewType).includes('한줄')) &&
+                              getStr(r.productName).trim() === targetProductName
+                          );
+                          for (const r of sameProductRows) {
+                            if (r.id !== modalReview.id) {
+                              await updatePurchase(r.id, {
+                                generatedReview: generatedText,
+                              });
+                            }
+                          }
+                          const updatedIds = new Set([
+                            modalReview.id,
+                            ...sameProductRows.map((r) => r.id),
+                          ]);
+                          setLocalData((prev) =>
+                            prev.map((r) =>
+                              updatedIds.has(r.id)
+                                ? { ...r, generatedReview: generatedText }
+                                : r
+                            )
+                          );
+                          setModalReview({
+                            ...modalReview,
+                            originalText: generatedText,
+                            currentText: generatedText,
+                            selectedStyle: 'all',
+                          });
+                          showToast(
+                            '✨ 3가지 스타일 AI 리뷰가 완전한 문장으로 다시 생성되었습니다!',
+                            'success'
+                          );
+                        } catch (err: any) {
+                          alert(
+                            `AI 다시 생성에 실패했습니다.\n사유: ${err?.message || '오류 발생'}`
+                          );
+                        } finally {
+                          setIsRegeneratingInModal(false);
+                        }
+                      }}
+                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white rounded-lg text-xs font-bold transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>{isRegeneratingInModal ? '⏳' : '🔄'}</span>
+                      <span>
+                        {isRegeneratingInModal ? '다시 생성 중...' : 'AI 다시 생성'}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setModalReview(null)}
+                    className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
               {/* 3가지 스타일이 있을 때 전환 탭 및 빠른 개별 복사 바 */}
