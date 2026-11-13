@@ -878,7 +878,69 @@
     }
   }
 
-  // 확인 모달 팝업의 [확인] 버튼 정밀 탐색 헬퍼 (푸터/헤더 잘못 클릭 원천 방지)
+  const SUCCESS_MSG_KEYWORDS = [
+    '등록되었습니다',
+    '도움이 될 거예요',
+    '감사합니다',
+    '상품평을 작성',
+    '작성 완료',
+    '이미 작성',
+  ];
+
+  const FAILURE_MSG_KEYWORDS = [
+    '선택해주세요',
+    '선택해 주세요',
+    '입력해주세요',
+    '입력해 주세요',
+    '작성해주세요',
+    '작성해 주세요',
+    '이상 작성',
+    '이상 입력',
+    '자 이상',
+    '금지어',
+    '부적절',
+    '업로드 실패',
+    '첨부 실패',
+    '실패',
+    '오류',
+    '잠시 후',
+    '다시 시도',
+    '로그인이 필요',
+  ];
+
+  function isSuccessAlertText(msg) {
+    const t = String(msg || '');
+    return SUCCESS_MSG_KEYWORDS.some((kw) => t.includes(kw));
+  }
+
+  function isFailureAlertText(msg) {
+    const t = String(msg || '');
+    if (!t || isSuccessAlertText(t)) return false;
+    return FAILURE_MSG_KEYWORDS.some((kw) => t.includes(kw));
+  }
+
+  // 화면 모달/레이어 또는 가로챈 window.alert 중 실패 메시지가 있는지 탐지
+  function detectFailureAlertOrLayer() {
+    if (isFailureAlertText(lastInterceptedAlert)) {
+      return lastInterceptedAlert;
+    }
+
+    const layers = Array.from(
+      document.querySelectorAll(
+        'div, section, article, [role="dialog"], [class*="modal"], [class*="popup"], [class*="dialog"], [class*="layer"], [class*="alert"]'
+      )
+    ).filter((box) => box.offsetParent !== null);
+
+    for (const box of layers) {
+      const t = (box.innerText || '').trim();
+      if (t.length > 0 && t.length <= 260 && isFailureAlertText(t)) {
+        return t.replace(/\s+/g, ' ').slice(0, 120);
+      }
+    }
+    return '';
+  }
+
+  // 확인 모달 팝업의 [확인] 버튼 정밀 탐색 헬퍼 (실패 경고창/푸터/헤더 오클릭 원천 방지)
   function findActiveConfirmButtons(excludeEl) {
     const allLayers = Array.from(
       document.querySelectorAll(
@@ -886,14 +948,7 @@
       )
     ).filter((box) => {
       if (box.offsetParent === null) return false;
-      const t = box.innerText || '';
-      return (
-        t.includes('등록되었습니다') ||
-        t.includes('도움이 될 거예요') ||
-        t.includes('감사합니다') ||
-        t.includes('상품평을 작성') ||
-        t.includes('이미 작성')
-      );
+      return isSuccessAlertText(box.innerText || '');
     });
 
     for (const box of allLayers) {
@@ -915,6 +970,8 @@
     ).filter((el) => {
       if (el === excludeEl || el.offsetParent === null) return false;
       if (el.closest('footer, header, nav, #footer, .footer, #header, .gnb')) return false;
+      const modalWrap = el.closest('[role="dialog"], [class*="modal"], [class*="popup"], [class*="dialog"], [class*="layer"], [class*="alert"]');
+      if (modalWrap && isFailureAlertText(modalWrap.innerText || '')) return false;
       const txt = (el.innerText || el.value || '').trim();
       return txt === '확인';
     });
@@ -1098,6 +1155,9 @@
 
     await sleep(250);
 
+    // 이전 알림 기록 초기화 후 제출
+    lastInterceptedAlert = '';
+
     await reportProgress('리뷰 [등록하기] 클릭...');
     submitBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
     await sleep(150);
@@ -1124,6 +1184,15 @@
         break;
       }
 
+      // 실패 경고창/에러 메시지 감지 시 즉시 중단 (거짓 등록 완료/오캡처 원천 방지!)
+      const failureMsg = detectFailureAlertOrLayer();
+      if (failureMsg) {
+        submitBtn.disabled = false;
+        submitBtn.style.pointerEvents = '';
+        await failTask(`쿠팡 리뷰 등록 거부: ${failureMsg}`);
+        return;
+      }
+
       const confirmButtons = findActiveConfirmButtons(submitBtn);
 
       if (confirmButtons.length > 0) {
@@ -1134,11 +1203,12 @@
         await reportProgress(`알림 팝업 [${btnText || '확인'}] 클릭 (${confirmClicks}회)...`);
         await sleep(150);
         triggerClick(targetBtn);
-        await sleep(400);
+        await sleep(450);
         continue;
       }
 
-      if ((confirmClicks > 0 || lastInterceptedAlert) && Date.now() - lastActionTime > 1500 && location.href.includes('register')) {
+      const hasSuccessAlert = Boolean(lastInterceptedAlert && isSuccessAlertText(lastInterceptedAlert));
+      if ((confirmClicks > 0 || hasSuccessAlert) && Date.now() - lastActionTime > 2200 && location.href.includes('register')) {
         await reportProgress('확인 완료! [작성한 리뷰] 페이지로 자동 이동합니다...');
         location.href = 'https://my.coupang.com/productreview/wroteReviews';
         return;
@@ -1146,8 +1216,15 @@
     }
 
     if (location.href.includes('register')) {
-      await reportProgress('[작성한 리뷰] 페이지로 이동합니다...');
-      location.href = 'https://my.coupang.com/productreview/wroteReviews';
+      const hasSuccessAlert = Boolean(lastInterceptedAlert && isSuccessAlertText(lastInterceptedAlert));
+      if (confirmClicks > 0 || hasSuccessAlert) {
+        await reportProgress('[작성한 리뷰] 페이지로 이동합니다...');
+        location.href = 'https://my.coupang.com/productreview/wroteReviews';
+        return;
+      }
+      submitBtn.disabled = false;
+      submitBtn.style.pointerEvents = '';
+      await failTask('리뷰 [등록하기] 후 등록 완료 응답이 확인되지 않았습니다. (필수 입력 누락 또는 쿠팡 지연)');
       return;
     }
 
@@ -1190,11 +1267,44 @@
     });
   }
 
-  // [Stage 3] 작성한 리뷰 탭에서 최상단 li.my-review__wrote__list 영역 캡처 및 저장
+  // [작성한 리뷰] 목록에서 현재 작업 상품(task.productName)과 일치하는 카드만 정확히 탐색
+  function findMatchedWroteReviewItem(productName) {
+    const items = Array.from(
+      document.querySelectorAll(
+        'li.my-review__wrote__list, li.my-review__wrote_list, li[class*="my-review__wrote"]'
+      )
+    ).filter((el) => el.offsetParent !== null);
+
+    if (items.length === 0) {
+      return { matchedLi: null, totalCount: 0 };
+    }
+
+    const normFull = normalizeText(productName);
+    if (normFull.length >= 4) {
+      for (const li of items) {
+        const txt = li.innerText || '';
+        if (normalizeText(txt).includes(normFull)) {
+          return { matchedLi: li, totalCount: items.length };
+        }
+      }
+    }
+
+    for (const li of items) {
+      const txt = li.innerText || '';
+      if (isProductNameMatch(productName, txt)) {
+        return { matchedLi: li, totalCount: items.length };
+      }
+    }
+
+    return { matchedLi: null, totalCount: items.length };
+  }
+
+  // [Stage 3] 작성한 리뷰 탭에서 "방금 작성한 해당 상품" li.my-review__wrote__list 영역 검증 후 캡처 및 저장
   async function executeCaptureStage(task) {
-    await reportProgress('[작성한 리뷰] 목록 로딩 대기 중...');
+    await reportProgress('[작성한 리뷰] 목록에서 등록된 상품 확인 중...');
 
     let targetLi = null;
+    let sawAnyItems = false;
 
     for (let i = 0; i < 24; i++) {
       const confirmBtns = findActiveConfirmButtons();
@@ -1203,11 +1313,16 @@
         await sleep(400);
       }
 
-      targetLi = document.querySelector(
-        'li.my-review__wrote__list, li.my-review__wrote_list, li[class*="my-review__wrote"]'
-      );
+      const { matchedLi, totalCount } = findMatchedWroteReviewItem(task.productName);
+      if (totalCount > 0) sawAnyItems = true;
 
-      if (targetLi && targetLi.offsetParent !== null) {
+      if (matchedLi) {
+        targetLi = matchedLi;
+        break;
+      }
+
+      // 목록은 이미 떴는데 아직 방금 쓴 상품이 반영되지 않은 경우(서버 반영 지연) 잠시 대기
+      if (sawAnyItems && i >= 6 && location.href.includes('wroteReviews')) {
         break;
       }
 
@@ -1233,6 +1348,28 @@
       }
 
       await sleep(500);
+    }
+
+    // 목록은 떴으나 방금 쓴 상품이 아직 안 보이면, 1회 새로고침하여 최신 반영 여부 재확인
+    if (!targetLi && sawAnyItems) {
+      const capReloads = task.captureReloadCount || 0;
+      if (capReloads < 1) {
+        const updatedTask = {
+          ...task,
+          captureReloadCount: capReloads + 1,
+          lastActivityAt: Date.now(),
+        };
+        await chrome.storage.local.set({ activeReviewTask: updatedTask });
+        await reportProgress('방금 등록한 상품 반영 확인을 위해 목록을 새로고침합니다...');
+        await sleep(900);
+        location.reload();
+        return;
+      }
+      // 새로고침까지 했는데도 해당 상품이 목록에 없으면 등록 실패로 간주 (절대 엉뚱한 상품 캡처/완료 체크 X!)
+      await failTask(
+        `쿠팡 [작성한 리뷰] 목록에서 "${(task.productName || '').slice(0, 22)}" 상품이 확인되지 않아 완료 처리하지 않고 중단했습니다. (실제 등록 미완료 가능성)`
+      );
+      return;
     }
 
     if (!targetLi) {
