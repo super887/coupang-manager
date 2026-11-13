@@ -84,16 +84,22 @@ export async function getPaginatedPurchases({
     }
   }
 
-  // DB에서 개수와 데이터를 동시에 조회
-  const [items, totalCount] = await Promise.all([
+  // DB에서 개수와 데이터를 동시에 조회 (첨부 사진은 본문 없이 개수만 가볍게 조회)
+  const [rawItems, totalCount] = await Promise.all([
     prisma.purchase.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (safePage - 1) * safePageSize,
       take: safePageSize,
+      include: { _count: { select: { photos: true } } },
     }),
     prisma.purchase.count({ where }),
   ]);
+
+  const items = rawItems.map(({ _count, ...rest }) => ({
+    ...rest,
+    photoCount: _count?.photos ?? 0,
+  }));
 
   return {
     items,

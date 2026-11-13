@@ -46,10 +46,26 @@ model Purchase {
   generatedReview  String   @default("")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  photos           ReviewPhoto[]
 
   @@index([userId])
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, purchaseDate(sort: Desc)])
+}
+
+// 리뷰 자동등록 시 함께 첨부할 판매자 제공 사진 (브라우저에서 초경량 JPEG 압축 후 임시 저장)
+// 쿠팡 자동등록 성공 또는 [작성] 체크 시 즉시 삭제되어 DB 용량을 항상 최소로 유지합니다.
+model ReviewPhoto {
+  id         String   @id @default(uuid())
+  userId     String
+  purchaseId String
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  dataUrl    String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([purchaseId])
+  @@index([userId])
 }
 
 model AccountInfo {

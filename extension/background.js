@@ -114,11 +114,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
-      // [규칙 2] 포토 리뷰 스킵
-      if (reviewType.includes('포토') || reviewType.includes('사진')) {
+      const photos = Array.isArray(payload.photos)
+        ? payload.photos.filter((u) => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 10)
+        : [];
+
+      // [규칙 2] (빈)포토 리뷰인데 첨부된 사진이 없으면 안전하게 스킵
+      if (
+        (reviewType.includes('포토') || reviewType.includes('사진')) &&
+        !reviewType.includes('원고') &&
+        photos.length === 0
+      ) {
         sendResponse({
           immediateSkip: true,
-          immediateError: '포토/사진 리뷰는 자동 작성 제외(수동 등록) 대상입니다.',
+          immediateError: '포토가 첨부되지 않아 건너뜁니다. 먼저 [보기]에서 해당 계정 포토를 첨부해주세요.',
         });
         return;
       }
@@ -134,6 +142,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chatRoomName: (payload.chatRoomName || '').trim(),
         reviewType,
         reviewText: (payload.reviewText || '').trim(),
+        photos,
         stage: 'FIND_PRODUCT',
         reloadCount: 0,
         bgReloadCount: 0,

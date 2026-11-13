@@ -17,4 +17,7 @@ ALTER TABLE IF EXISTS "SellerInfo" ENABLE ROW LEVEL SECURITY;
 -- 5. 마이그레이션 메타데이터 테이블 (존재할 경우)
 ALTER TABLE IF EXISTS "_prisma_migrations" ENABLE ROW LEVEL SECURITY;
 
+-- 6. ReviewPhoto (리뷰 첨부 사진 임시 보관) 테이블
+ALTER TABLE IF EXISTS "ReviewPhoto" ENABLE ROW LEVEL SECURITY;
+
 -- 정책(Policy)을 추가하지 않았으므로, anon(공개 키) 및 authenticated 기본 롤의 직접적인 REST API 접근은 모두 차단(Deny All)됩니다.

@@ -11,14 +11,48 @@ import {
 } from '@/app/actions/purchase';
 import { generateAiReview, selectPositiveSurveyOptions } from '@/app/actions/ai';
 import {
+  getReviewPhotos,
+  addReviewPhoto,
+  deleteReviewPhoto,
+  clearReviewPhotos,
+} from '@/app/actions/photo';
+import {
   splitReviewCandidates,
   extractCleanReview,
   extractFirstSentences,
   isValidThreeStyleReview,
 } from '@/lib/review-parser';
+import { compressImageFileToJpegDataUrl } from '@/lib/image-compress';
+import ReviewPhotoPicker, { type PickerPhoto } from '@/components/ReviewPhotoPicker';
 
 // 🛡️ 절대 안 터지는 안전 변환 함수들
 const getStr = (val: any) => (val === null || val === undefined ? '' : String(val));
+
+// 리뷰 타입 분류 헬퍼
+// - AI 3스타일 생성 대상: (빈)텍스트, (빈)한줄텍, (빈)포토
+// - 원고제공: AI 생성 없이 판매자 원고를 계정(행)별로 직접 입력
+const isManuscriptType = (type: any) => getStr(type).includes('원고');
+const isPhotoReviewType = (type: any) => {
+  const t = getStr(type);
+  return (t.includes('포토') || t.includes('사진')) && !t.includes('원고');
+};
+const isAiReviewType = (type: any) => {
+  const t = getStr(type);
+  return t === '(빈)텍스트' || t.includes('한줄') || isPhotoReviewType(t);
+};
+
+// 확장 프로그램 버전 비교 (사진 자동 첨부는 v1.3.9 이상 필요)
+const PHOTO_EXT_MIN_VERSION = '1.3.9';
+const isVersionAtLeast = (current: string, required: string) => {
+  const a = getStr(current).split('.').map((n) => parseInt(n, 10) || 0);
+  const b = getStr(required).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+};
 
 // 연결된 계정주("김수연" 또는 쿠팡 마스킹 이름 "김*연")와 행의 계정주가 일치하는지 판별
 const isAccountHolderMatch = (rowHolder: string, connectedAccount: string): boolean => {
@@ -109,6 +143,16 @@ export default function PurchaseTable({
     selectedStyle: number | 'all';
   } | null>(null);
   const [isRegeneratingInModal, setIsRegeneratingInModal] = useState(false);
+
+  // 📸 리뷰 첨부 사진 (행 id -> 사진 목록) 및 업로드 진행 상태
+  const [photoMap, setPhotoMap] = useState<Record<string, PickerPhoto[]>>({});
+  const [uploadingPhotoRowId, setUploadingPhotoRowId] = useState<string>('');
+
+  // 📝 원고제공 전용 모달 (계정/행 단위 독립)
+  const [manuscriptModal, setManuscriptModal] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
 
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
@@ -340,8 +384,123 @@ export default function PurchaseTable({
     } catch {
       alert('상태 업데이트에 실패했습니다.');
       fetchData();
+      return;
+    }
+
+    // [작성] 체크(자동등록 성공 포함) 즉시 해당 행의 첨부 사진을 DB에서 삭제하여 무료 DB 용량 확보
+    if (field === 'isReviewWritten' && value === true) {
+      try {
+        await clearReviewPhotos(id);
+        setPhotoMap((prev) => {
+          if (!prev[id]) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setLocalData((prev) => prev.map((r) => (r.id === id ? { ...r, photoCount: 0 } : r)));
+      } catch {
+        // 사진 삭제 실패는 다음 [작성] 체크 시 재시도되므로 무시
+      }
     }
   };
+
+  // 📸 사진 목록 불러오기 (여러 행 한 번에)
+  const loadPhotosForRows = useCallback(async (rowIds: string[]) => {
+    const ids = Array.from(new Set(rowIds.filter(Boolean)));
+    if (ids.length === 0) return;
+    try {
+      const items = await getReviewPhotos(ids);
+      setPhotoMap((prev) => {
+        const next = { ...prev };
+        ids.forEach((id) => {
+          next[id] = [];
+        });
+        items.forEach((p) => {
+          next[p.purchaseId] = [...(next[p.purchaseId] || []), { id: p.id, dataUrl: p.dataUrl }];
+        });
+        return next;
+      });
+    } catch {
+      showToast('⚠️ 첨부 사진을 불러오지 못했습니다.', 'error');
+    }
+  }, [showToast]);
+
+  // 📸 사진 추가 (브라우저에서 JPEG 초경량 압축 후 1장씩 업로드)
+  const handleAddPhotos = async (rowId: string, files: File[]) => {
+    if (!rowId || files.length === 0) return;
+    setUploadingPhotoRowId(rowId);
+    let added = 0;
+    try {
+      for (const file of files) {
+        try {
+          const dataUrl = await compressImageFileToJpegDataUrl(file);
+          const saved = await addReviewPhoto(rowId, dataUrl);
+          added++;
+          setPhotoMap((prev) => ({
+            ...prev,
+            [rowId]: [...(prev[rowId] || []), { id: saved.id, dataUrl: saved.dataUrl }],
+          }));
+          setLocalData((prev) =>
+            prev.map((r) =>
+              r.id === rowId ? { ...r, photoCount: (Number(r.photoCount) || 0) + 1 } : r
+            )
+          );
+        } catch (err: any) {
+          showToast(`⚠️ ${err?.message || '사진 첨부에 실패했습니다.'}`, 'error');
+          break;
+        }
+      }
+      if (added > 0) showToast(`📸 사진 ${added}장이 첨부되었습니다.`, 'success');
+    } finally {
+      setUploadingPhotoRowId('');
+    }
+  };
+
+  // 📸 사진 1장 삭제
+  const handleDeletePhoto = async (rowId: string, photoId: string) => {
+    setPhotoMap((prev) => ({
+      ...prev,
+      [rowId]: (prev[rowId] || []).filter((p) => p.id !== photoId),
+    }));
+    setLocalData((prev) =>
+      prev.map((r) =>
+        r.id === rowId ? { ...r, photoCount: Math.max(0, (Number(r.photoCount) || 0) - 1) } : r
+      )
+    );
+    try {
+      await deleteReviewPhoto(photoId);
+    } catch {
+      showToast('⚠️ 사진 삭제에 실패했습니다.', 'error');
+      loadPhotosForRows([rowId]);
+    }
+  };
+
+  // 계정 등록 순서 기준 스타일 번호(0,1,2...) 계산 — AI 3스타일 분배 및 포토 매칭에 공통 사용
+  const getRowStyleIdx = useCallback(
+    (row: any) => {
+      const productName = getStr(row.productName).trim();
+      const orderedAccountHolders = Array.from(
+        new Set(
+          safeAccounts
+            .map((a) => getStr(a?.accountHolder).replace(/\s+/g, ''))
+            .filter(Boolean)
+        )
+      );
+      const normalizedHolder = getStr(row.accountHolder).replace(/\s+/g, '');
+      const accountIdx = normalizedHolder ? orderedAccountHolders.indexOf(normalizedHolder) : -1;
+      if (accountIdx >= 0) return accountIdx;
+
+      // 폴백: 등록된 계정에 없는 이름인 경우 동일 상품 행 순서로 분산
+      const sameProductRows = localData.filter(
+        (r) => getStr(r.productName).trim() === productName
+      );
+      return Math.max(
+        0,
+        sameProductRows.findIndex((r) => r.id === row.id)
+      );
+    },
+    [safeAccounts, localData]
+  );
 
   const handleCopy = async (e: React.MouseEvent, text: string) => {
     e.preventDefault();
@@ -379,7 +538,7 @@ export default function PurchaseTable({
         (r) =>
           r.id !== id &&
           !r.isReviewWritten &&
-          (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
+          isAiReviewType(r.reviewType) &&
           getStr(r.productName).trim() === trimmedName &&
           (!r.generatedReview || !isValidThreeStyleReview(getStr(r.generatedReview)))
       );
@@ -420,7 +579,7 @@ export default function PurchaseTable({
     const targets = localData.filter(
       (r) =>
         !r.isReviewWritten &&
-        (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
+        isAiReviewType(r.reviewType) &&
         (!r.generatedReview || !isValidThreeStyleReview(getStr(r.generatedReview))) &&
         (r.productName || '').trim() !== ''
     );
@@ -462,7 +621,7 @@ export default function PurchaseTable({
         setLocalData((prev) =>
           prev.map((r) =>
             !r.isReviewWritten &&
-            (r.reviewType === '(빈)텍스트' || getStr(r.reviewType).includes('한줄')) &&
+            isAiReviewType(r.reviewType) &&
             (!r.generatedReview || !isValidThreeStyleReview(getStr(r.generatedReview))) &&
             getStr(r.productName).trim() === currentProductName
               ? { ...r, generatedReview: generatedText }
@@ -557,17 +716,10 @@ export default function PurchaseTable({
         return { success: false, skipped: true, error: '상품명이 비어 있습니다.' };
       }
 
-      // [규칙 1] 포토/사진 리뷰는 자동 작성 스킵
-      if (reviewType.includes('포토') || reviewType.includes('사진')) {
-        return {
-          success: false,
-          skipped: true,
-          error: '포토 리뷰는 수동 등록 대상입니다.',
-        };
-      }
-
-      // [규칙 2] 별점 전용인지 텍스트 필요한지 판별
+      // [규칙 1] 별점 전용인지 / 원고제공인지 / 포토인지 판별
       const isStarOnly = reviewType.includes('별점');
+      const isManuscript = isManuscriptType(reviewType);
+      const isPhotoReview = isPhotoReviewType(reviewType);
       let cleanReviewText = '';
 
       if (!isStarOnly) {
@@ -576,54 +728,71 @@ export default function PurchaseTable({
           return {
             success: false,
             skipped: true,
-            error: '생성된 AI 리뷰 텍스트가 없습니다. 먼저 AI 리뷰를 생성해주세요.',
+            error: isManuscript
+              ? '입력된 원고가 없습니다. 먼저 [📝 원고입력]에서 판매자 원고를 붙여넣어주세요.'
+              : '생성된 AI 리뷰 텍스트가 없습니다. 먼저 AI 리뷰를 생성해주세요.',
           };
         }
 
-        // 1순위: 등록된 계정 순서(최초 등록순: 1번 계정->0, 2번 계정->1, 3번 계정->2)로 고정 매칭
-        const orderedAccountHolders = Array.from(
-          new Set(
-            safeAccounts
-              .map((a) => getStr(a?.accountHolder).replace(/\s+/g, ''))
-              .filter(Boolean)
-          )
-        );
-        const normalizedHolder = accountHolder.replace(/\s+/g, '');
-        const accountIdx = normalizedHolder
-          ? orderedAccountHolders.indexOf(normalizedHolder)
-          : -1;
-
-        let rowStyleIdx = 0;
-        if (accountIdx >= 0) {
-          rowStyleIdx = accountIdx;
+        if (isManuscript) {
+          // [원고제공] 판매자가 계정별로 준 원고를 스타일 분리 없이 그대로 등록
+          cleanReviewText = rawReview;
         } else {
-          // 폴백: 등록된 계정에 없는 이름인 경우 동일 상품 행 순서로 분산
-          const sameProductRows = localData.filter(
-            (r) => getStr(r.productName).trim() === productName
-          );
-          rowStyleIdx = Math.max(
-            0,
-            sameProductRows.findIndex((r) => r.id === row.id)
-          );
+          // 등록된 계정 순서(1번 계정->0, 2번 계정->1, 3번 계정->2)로 AI 3스타일 고정 매칭
+          cleanReviewText = extractCleanReview(rawReview, getRowStyleIdx(row));
+          // [한줄텍] 스타일인 경우 해당 계정 순번 리뷰의 앞 2문장만 추출하여 자동 등록
+          if (reviewType.includes('한줄')) {
+            cleanReviewText = extractFirstSentences(cleanReviewText, 2);
+          }
         }
-        cleanReviewText = extractCleanReview(rawReview, rowStyleIdx);
-        // [한줄텍] 스타일인 경우 해당 계정 순번 리뷰의 앞 2문장만 추출하여 자동 등록
-        if (reviewType.includes('한줄')) {
-          cleanReviewText = extractFirstSentences(cleanReviewText, 2);
+      }
+
+      // [규칙 2] 첨부 사진 준비 — (빈)포토는 사진 필수, (빈)원고제공은 있으면 함께 첨부
+      let photoDataUrls: string[] = [];
+      if (isPhotoReview || isManuscript) {
+        try {
+          const photos = await getReviewPhotos([row.id]);
+          photoDataUrls = photos.map((p) => p.dataUrl);
+        } catch {
+          return {
+            success: false,
+            error: '첨부 사진을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.',
+          };
+        }
+
+        if (isPhotoReview && photoDataUrls.length === 0) {
+          return {
+            success: false,
+            skipped: true,
+            error: '포토가 첨부되지 않아 건너뜁니다. [보기]에서 해당 계정 포토를 먼저 첨부해주세요.',
+          };
+        }
+
+        if (photoDataUrls.length > 0) {
+          const extVersion =
+            document.documentElement.getAttribute('data-coupang-ext-version') || '0';
+          if (!isVersionAtLeast(extVersion, PHOTO_EXT_MIN_VERSION)) {
+            return {
+              success: false,
+              skipped: true,
+              error: `사진 자동 첨부는 확장 프로그램 v${PHOTO_EXT_MIN_VERSION} 이상이 필요합니다. (현재 v${extVersion}) 확장 프로그램을 업데이트해주세요.`,
+            };
+          }
         }
       }
 
       return new Promise((resolve) => {
         const requestId = `req-${row.id}-${Date.now()}`;
+        const timeoutMs = 90000 + photoDataUrls.length * 8000;
         const timeoutId = setTimeout(() => {
           if (pendingExtResolverRef.current) {
             pendingExtResolverRef.current = null;
             resolve({
               success: false,
-              error: '시간 초과(90초): 쿠팡 응답이 없거나 작업이 중단되었습니다.',
+              error: `시간 초과(${Math.round(timeoutMs / 1000)}초): 쿠팡 응답이 없거나 작업이 중단되었습니다.`,
             });
           }
-        }, 90000);
+        }, timeoutMs);
 
         pendingExtResolverRef.current = (res) => {
           clearTimeout(timeoutId);
@@ -640,6 +809,7 @@ export default function PurchaseTable({
               productName,
               reviewType,
               reviewText: cleanReviewText,
+              photos: photoDataUrls,
               purchaseDate: getStr(row.purchaseDate),
               chatRoomName: getStr(row.chatRoomName),
             },
@@ -648,7 +818,7 @@ export default function PurchaseTable({
         );
       });
     },
-    [localData, safeAccounts, assignedExtAccount]
+    [getRowStyleIdx, assignedExtAccount]
   );
 
   // 🚀 단건 [자동등록] 버튼 핸들러
@@ -682,10 +852,6 @@ export default function PurchaseTable({
     }
 
     const reviewType = getStr(row.reviewType).trim();
-    if (reviewType.includes('포토') || reviewType.includes('사진')) {
-      showToast('📸 포토 리뷰는 수동 등록 대상입니다. (자동 작성 제외)', 'info');
-      return;
-    }
 
     if (!getStr(row.productName).trim()) {
       showToast('⚠️ 상품명을 먼저 입력하고 저장해주세요.', 'error');
@@ -693,7 +859,17 @@ export default function PurchaseTable({
     }
 
     if (!reviewType.includes('별점') && !getStr(row.generatedReview).trim()) {
-      showToast('⚠️ 먼저 AI 리뷰 [생성] 버튼을 눌러 리뷰 본문을 준비해주세요.', 'error');
+      showToast(
+        isManuscriptType(reviewType)
+          ? '⚠️ 먼저 [📝 원고입력]에서 판매자 원고를 붙여넣어주세요.'
+          : '⚠️ 먼저 AI 리뷰 [생성] 버튼을 눌러 리뷰 본문을 준비해주세요.',
+        'error'
+      );
+      return;
+    }
+
+    if (isPhotoReviewType(reviewType) && !(Number(row.photoCount) > 0)) {
+      showToast('📸 포토가 첨부되지 않았습니다. [보기]에서 해당 계정 포토를 먼저 첨부해주세요.', 'error');
       return;
     }
 
@@ -783,7 +959,7 @@ export default function PurchaseTable({
 
     if (
       !confirm(
-        `선택하신 항목 중 대상 [${targetList.length}건]에 대해 쿠팡 리뷰 자동 등록 및 인증 캡처를 시작할까요?${excludeNoticeStr}\n- 포토 리뷰는 자동으로 건너뜁니다.\n- 별점 타입은 별점 5점 + 객관식 설문만 등록합니다.\n- 항목 간 3초 간격으로 순차 진행됩니다.`
+        `선택하신 항목 중 대상 [${targetList.length}건]에 대해 쿠팡 리뷰 자동 등록 및 인증 캡처를 시작할까요?${excludeNoticeStr}\n- 포토 리뷰는 포토가 첨부된 경우에만 사진과 함께 등록됩니다. (미첨부 시 자동 스킵)\n- 원고제공은 입력된 원고(+첨부 사진)로 등록됩니다.\n- 별점 타입은 별점 5점 + 객관식 설문만 등록합니다.\n- 항목 간 3초 간격으로 순차 진행됩니다.`
       )
     ) {
       return;
@@ -1229,9 +1405,7 @@ export default function PurchaseTable({
                   ? 'bg-yellow-50/30'
                   : 'hover:bg-blue-50/20';
 
-                const isPhotoType =
-                  getStr(row.reviewType).includes('포토') ||
-                  getStr(row.reviewType).includes('사진');
+                const isPhotoType = isPhotoReviewType(row.reviewType);
 
                 return (
                   <tr key={row.id} className={`${rowBg} transition-colors`}>
@@ -1408,9 +1582,38 @@ export default function PurchaseTable({
                     </td>
                     <td className="p-1 border-r text-center align-middle">
                       <div className="flex flex-col gap-1.5 px-1">
-                        {row.reviewType === '(빈)텍스트' ||
-                        row.reviewType === '(빈)원고제공' ||
-                        getStr(row.reviewType).includes('한줄') ? (
+                        {isManuscriptType(row.reviewType) ? (
+                          (() => {
+                            // 📝 원고제공: AI 생성 없이 계정(행)별로 독립된 원고 + (선택) 사진
+                            const hasText = getStr(row.generatedReview).trim() !== '';
+                            const photoCnt = Number(row.photoCount) || 0;
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setManuscriptModal({
+                                    id: row.id,
+                                    text: getStr(row.generatedReview),
+                                  });
+                                  loadPhotosForRows([row.id]);
+                                }}
+                                title="판매자가 이 계정에 준 원고(및 사진)를 입력합니다. 같은 상품의 다른 계정과 공유되지 않습니다."
+                                className={`${
+                                  hasText
+                                    ? 'bg-teal-100 hover:bg-teal-200 text-teal-800'
+                                    : 'bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200'
+                                } text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full whitespace-nowrap`}
+                              >
+                                {!hasText
+                                  ? '📝 원고입력'
+                                  : photoCnt > 0
+                                  ? `📝 원고+📸${photoCnt}`
+                                  : '📝 원고'}
+                              </button>
+                            );
+                          })()
+                        ) : isAiReviewType(row.reviewType) ? (
                           !row.generatedReview ? (
                             <button
                               type="button"
@@ -1423,9 +1626,21 @@ export default function PurchaseTable({
                             </button>
                           ) : (() => {
                             const rawRev = getStr(row.generatedReview);
-                            const isIncomplete =
-                              row.reviewType !== '(빈)원고제공' &&
-                              !isValidThreeStyleReview(rawRev);
+                            const isIncomplete = !isValidThreeStyleReview(rawRev);
+                            const isPhotoRow = isPhotoReviewType(row.reviewType);
+                            const photoCnt = Number(row.photoCount) || 0;
+                            const label = isPhotoRow
+                              ? `${isIncomplete ? '⚠️' : ''}${photoCnt > 0 ? `📸 보기(${photoCnt}장)` : '📄 보기(📸미첨부)'}`
+                              : isIncomplete
+                              ? '⚠️ 보기(잘림)'
+                              : '📄 보기';
+                            const colorCls = isIncomplete
+                              ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
+                              : isPhotoRow && photoCnt === 0
+                              ? 'bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200'
+                              : isPhotoRow
+                              ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
+                              : 'bg-blue-100 hover:bg-blue-200 text-blue-700';
                             return (
                               <button
                                 type="button"
@@ -1438,19 +1653,29 @@ export default function PurchaseTable({
                                     currentText: rawRev,
                                     selectedStyle: 'all',
                                   });
+                                  if (isPhotoRow) {
+                                    const pName = getStr(row.productName).trim();
+                                    loadPhotosForRows(
+                                      localData
+                                        .filter(
+                                          (r) =>
+                                            isPhotoReviewType(r.reviewType) &&
+                                            getStr(r.productName).trim() === pName
+                                        )
+                                        .map((r) => r.id)
+                                    );
+                                  }
                                 }}
                                 title={
                                   isIncomplete
                                     ? '일부 스타일이 잘렸거나 3개 미만입니다. 클릭 후 [AI 다시 생성]을 눌러 복구할 수 있습니다.'
+                                    : isPhotoRow
+                                    ? '생성된 AI 리뷰 확인 및 1·2·3번 계정별 포토 첨부'
                                     : '생성된 AI 리뷰 확인 및 수정'
                                 }
-                                className={`${
-                                  isIncomplete
-                                    ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
-                                    : 'bg-blue-100 hover:bg-blue-200 text-blue-700'
-                                } text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full`}
+                                className={`${colorCls} text-[11px] py-1.5 px-1 rounded font-medium transition-colors w-full whitespace-nowrap`}
                               >
-                                {isIncomplete ? '⚠️ 보기(잘림)' : '📄 보기'}
+                                {label}
                               </button>
                             );
                           })()
@@ -1503,15 +1728,15 @@ export default function PurchaseTable({
                         <button
                           type="button"
                           onClick={(e) => handleAutoRegisterSingle(e, row)}
-                          disabled={isAutoRegistering || isPhotoType}
+                          disabled={isAutoRegistering}
                           title={
-                            isPhotoType
-                              ? '포토 리뷰는 수동 등록 대상입니다'
+                            isPhotoType && !(Number(row.photoCount) > 0)
+                              ? '포토가 아직 첨부되지 않았습니다. [보기]에서 포토를 첨부한 뒤 자동등록하세요.'
                               : '쿠팡 마이페이지에서 리뷰 자동 작성 및 인증 캡처 저장'
                           }
                           className={`px-2 py-1 rounded font-bold text-xs transition-colors border ${
-                            isPhotoType
-                              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                            isPhotoType && !(Number(row.photoCount) > 0)
+                              ? 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
                               : isWritten
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                               : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
@@ -1519,8 +1744,8 @@ export default function PurchaseTable({
                         >
                           {autoRegState.activeRowId === row.id
                             ? '⏳진행중'
-                            : isPhotoType
-                            ? '포토제외'
+                            : isPhotoType && !(Number(row.photoCount) > 0)
+                            ? '📸미첨부'
                             : '🚀자동등록'}
                         </button>
 
@@ -1611,17 +1836,31 @@ export default function PurchaseTable({
         const hasMultiple = candidates.length > 1;
         const isCurrentIncomplete = !isValidThreeStyleReview(modalReview.originalText);
         const modalRow = localData.find((r) => r.id === modalReview.id);
+        const isPhotoModal = isPhotoReviewType(modalRow?.reviewType);
         const targetProductName = getStr(
           modalReview.productName || modalRow?.productName
         ).trim();
 
+        // (빈)포토인 경우 동일 상품의 계정별 행(1번/2번/3번 스타일 매칭 행) 목록 추출
+        const sameProductPhotoRows = isPhotoModal
+          ? localData
+              .filter(
+                (r) =>
+                  isPhotoReviewType(r.reviewType) &&
+                  getStr(r.productName).trim() === targetProductName
+              )
+              .sort((a, b) => getRowStyleIdx(a) - getRowStyleIdx(b))
+          : [];
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center mb-3 border-b pb-3">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xl">📄</span>
-                  <h3 className="text-lg font-bold text-gray-800">AI 리뷰 확인 및 선택</h3>
+                  <span className="text-xl">{isPhotoModal ? '📸' : '📄'}</span>
+                  <h3 className="text-lg font-bold text-gray-800">
+                    {isPhotoModal ? 'AI 리뷰 & 스타일별 포토 첨부' : 'AI 리뷰 확인 및 선택'}
+                  </h3>
                   {hasMultiple && (
                     <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full font-semibold">
                       총 {candidates.length}개 스타일
@@ -1654,8 +1893,7 @@ export default function PurchaseTable({
                           const sameProductRows = localData.filter(
                             (r) =>
                               !r.isReviewWritten &&
-                              (r.reviewType === '(빈)텍스트' ||
-                                getStr(r.reviewType).includes('한줄')) &&
+                              isAiReviewType(r.reviewType) &&
                               getStr(r.productName).trim() === targetProductName
                           );
                           for (const r of sameProductRows) {
@@ -1821,9 +2059,67 @@ export default function PurchaseTable({
                 onChange={(e) => {
                   setModalReview({ ...modalReview, currentText: e.target.value });
                 }}
-                className="w-full h-48 p-4 border border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-500 bg-white rounded-lg text-sm resize-none outline-none leading-relaxed"
+                className="w-full h-44 p-4 border border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-500 bg-white rounded-lg text-sm resize-none outline-none leading-relaxed"
                 placeholder="리뷰 텍스트를 입력하거나 수정할 수 있습니다."
               />
+
+              {/* 📸 (빈)포토 전용: 1번 / 2번 / 3번 스타일(계정)별 포토 첨부 영역 */}
+              {isPhotoModal && (
+                <div className="mt-4 p-3.5 bg-pink-50/60 border border-pink-200 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-xs font-bold text-pink-900 flex items-center gap-1">
+                      <span>📸</span> 스타일(계정)별 포토 첨부 (한 곳에서 올리면 각 계정 행에 자동 연결, 등록 완료 시 자동 삭제):
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(sameProductPhotoRows.length > 0
+                      ? sameProductPhotoRows
+                      : modalRow
+                      ? [modalRow]
+                      : []
+                    ).map((targetRow, idx) => {
+                      const styleIdx = getRowStyleIdx(targetRow);
+                      const holderName = getStr(targetRow.accountHolder).trim() || `계정 ${idx + 1}`;
+                      const stylePreview = (candidates[styleIdx % Math.max(1, candidates.length)] || '').slice(0, 36);
+                      const rowPhotos = photoMap[targetRow.id] || [];
+                      return (
+                        <div
+                          key={targetRow.id}
+                          className="bg-white border border-pink-100 rounded-lg p-2.5 shadow-2xs"
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-2 py-0.5 bg-pink-600 text-white rounded text-[11px] font-bold">
+                                {styleIdx + 1}번 스타일 · {holderName}
+                              </span>
+                              {targetRow.isReviewWritten && (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-semibold">
+                                  작성완료
+                                </span>
+                              )}
+                            </div>
+                            {stylePreview && (
+                              <span className="text-[11px] text-gray-400 truncate max-w-[260px]">
+                                &ldquo;{stylePreview}...&rdquo;
+                              </span>
+                            )}
+                          </div>
+                          <ReviewPhotoPicker
+                            photos={rowPhotos}
+                            uploading={uploadingPhotoRowId === targetRow.id}
+                            disabled={Boolean(targetRow.isReviewWritten)}
+                            label={`📸 ${styleIdx + 1}번(${holderName}) 포토첨부`}
+                            compact
+                            onAddFiles={(files) => handleAddPhotos(targetRow.id, files)}
+                            onDelete={(photoId) => handleDeletePhoto(targetRow.id, photoId)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-5 flex justify-between items-center gap-3 flex-wrap">
                 <button
@@ -1865,6 +2161,114 @@ export default function PurchaseTable({
                   <button
                     type="button"
                     onClick={() => setModalReview(null)}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 📝 (빈)원고제공 전용 모달 — 계정(행) 단위 100% 독립 원고 입력 + 선택적 포토 첨부 */}
+      {manuscriptModal && (() => {
+        const mRow = localData.find((r) => r.id === manuscriptModal.id);
+        const holder = getStr(mRow?.accountHolder).trim() || '계정 미지정';
+        const prodName = getStr(mRow?.productName).trim() || '(상품명 없음)';
+        const rowPhotos = photoMap[manuscriptModal.id] || [];
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 m-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-3 border-b pb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xl">📝</span>
+                  <h3 className="text-lg font-bold text-gray-800">판매자 원고 입력 및 포토 첨부</h3>
+                  <span className="bg-teal-100 text-teal-800 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                    👤 {holder} 단독 저장
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setManuscriptModal(null)}
+                  className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mb-3 p-2.5 bg-teal-50/70 border border-teal-200 rounded-lg text-xs text-teal-900">
+                <div className="font-bold truncate">📦 상품명: {prodName}</div>
+                <div className="text-[11px] text-teal-700 mt-0.5">
+                  • 원고제공은 AI 생성 없이 판매자가 <b>[{holder}]</b> 계정에 준 원고를 그대로 등록합니다. (다른 계정 행과 공유되지 않음)
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center mb-1 text-xs text-gray-600 font-semibold">
+                <span>✍️ 판매자 제공 원고 텍스트 (필수)</span>
+                <span className="text-[11px] text-gray-400">{manuscriptModal.text.length}자</span>
+              </div>
+              <textarea
+                value={manuscriptModal.text}
+                onChange={(e) =>
+                  setManuscriptModal({ ...manuscriptModal, text: e.target.value })
+                }
+                className="w-full h-40 p-3.5 border border-gray-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500 bg-white rounded-lg text-sm resize-none outline-none leading-relaxed"
+                placeholder="판매자에게 받은 원고 텍스트를 여기에 붙여넣으세요."
+              />
+
+              <div className="mt-4">
+                <div className="flex justify-between items-center mb-1.5 text-xs text-gray-600 font-semibold">
+                  <span>📸 판매자 제공 사진 첨부 (선택사항 — 사진도 받았을 때만 첨부)</span>
+                  <span className="text-[11px] text-gray-400">등록 완료 시 DB에서 자동 삭제</span>
+                </div>
+                <ReviewPhotoPicker
+                  photos={rowPhotos}
+                  uploading={uploadingPhotoRowId === manuscriptModal.id}
+                  disabled={Boolean(mRow?.isReviewWritten)}
+                  label={`📸 ${holder} 포토첨부`}
+                  onAddFiles={(files) => handleAddPhotos(manuscriptModal.id, files)}
+                  onDelete={(photoId) => handleDeletePhoto(manuscriptModal.id, photoId)}
+                />
+              </div>
+
+              <div className="mt-5 flex justify-between items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const textToSave = manuscriptModal.text.trim();
+                    setLocalData((prev) =>
+                      prev.map((r) =>
+                        r.id === manuscriptModal.id
+                          ? { ...r, generatedReview: textToSave }
+                          : r
+                      )
+                    );
+                    await updatePurchase(manuscriptModal.id, {
+                      generatedReview: textToSave,
+                    });
+                    showToast(`💾 [${holder}] 원고가 저장되었습니다!`, 'success');
+                    setManuscriptModal(null);
+                  }}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-1.5"
+                >
+                  <span>💾</span>
+                  <span>원고 저장 및 닫기</span>
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopy(e, manuscriptModal.text)}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    📋 원고 복사
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManuscriptModal(null)}
                     className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
                   >
                     닫기

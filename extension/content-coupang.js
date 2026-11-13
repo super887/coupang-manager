@@ -1001,10 +1001,85 @@
       if (task.reviewText) {
         setTextareaValue(reviewTextarea, task.reviewText);
       }
-      await sleep(450);
+      await sleep(550);
     } else {
       await reportProgress('별점 전용 타입: 상세 텍스트 없이 등록합니다...');
       await sleep(250);
+    }
+
+    // 4. 첨부 사진이 있는 경우((빈)포토, 또는 포토가 포함된 (빈)원고제공) 쿠팡 사진 입력창에 자동 주입
+    const photoList = Array.isArray(task.photos)
+      ? task.photos.filter((u) => typeof u === 'string' && u.startsWith('data:image/'))
+      : [];
+
+    if (photoList.length > 0) {
+      await reportProgress(`📸 첨부 사진 ${photoList.length}장 업로드 중...`);
+      await sleep(400);
+
+      const fileInput =
+        document.querySelector('#myReviewModifyFileButton') ||
+        document.querySelector('input[type="file"][data-param-name="files"]') ||
+        document.querySelector('.my-review__modify__file input[type="file"]') ||
+        document.querySelector('input[type="file"]');
+
+      if (!fileInput) {
+        await failTask('쿠팡 사진 첨부 입력창(input[type="file"])을 찾지 못했습니다.');
+        return;
+      }
+
+      // DataURL -> File 변환 헬퍼 (PC 하드디스크 저장 없이 메모리 상에서 즉시 변환)
+      const dataUrlToFile = (dataUrl, idx) => {
+        const parts = dataUrl.split(',');
+        const mimeMatch = (parts[0] || '').match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        const ext = mime.includes('png') ? 'png' : mime.includes('gif') ? 'gif' : 'jpg';
+        const bstr = atob(parts[1] || '');
+        const u8arr = new Uint8Array(bstr.length);
+        for (let i = 0; i < bstr.length; i++) {
+          u8arr[i] = bstr.charCodeAt(i);
+        }
+        return new File([u8arr], `review_photo_${Date.now()}_${idx + 1}.${ext}`, {
+          type: mime,
+          lastModified: Date.now() - (photoList.length - idx) * 1200,
+        });
+      };
+
+      const getUploadedPhotoCount = () => {
+        const countEl = document.querySelector('.my-review__modify__file__count');
+        if (countEl) {
+          const m = (countEl.textContent || '').match(/(\d+)\s*\//);
+          if (m) return parseInt(m[1], 10) || 0;
+        }
+        const listImgs = document.querySelectorAll(
+          '.my-review__modify__file__list-wrap img, .my-review__modify__file__list-wrap li'
+        );
+        return listImgs.length;
+      };
+
+      try {
+        const dt = new DataTransfer();
+        for (let i = 0; i < photoList.length; i++) {
+          dt.items.add(dataUrlToFile(photoList[i], i));
+        }
+        fileInput.files = dt.files;
+        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (err) {
+        await failTask(`사진 주입 중 오류가 발생했습니다: ${err?.message || err}`);
+        return;
+      }
+
+      // 쿠팡 서버로 사진 업로드 및 썸네일 렌더링 완료 대기 (최대 10초)
+      for (let w = 0; w < 20; w++) {
+        await sleep(500);
+        const uploadedCnt = getUploadedPhotoCount();
+        if (uploadedCnt >= photoList.length) {
+          await reportProgress(`📸 사진 ${uploadedCnt}장 업로드 완료! 잠시 후 등록합니다...`);
+          break;
+        }
+      }
+      // 자연스러운 사람 속도 유지 (썸네일 완전히 자리잡도록 1.2초 추가 대기)
+      await sleep(1200);
     }
 
     // [합의 사항] 한줄 요약 칸은 입력하지 않고 빈칸 유지!
